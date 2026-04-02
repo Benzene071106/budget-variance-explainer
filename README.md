@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Budget Variance Explainer - OpenEnv
 
 ## Description & Motivation
@@ -36,3 +37,15 @@ A well-trained agent can reduce this to ~2 minutes while maintaining high accura
 ```bash
 pip install -r requirements.txt
 uvicorn main:app --reload
+=======
+---
+title: Budget Variance Explainer
+emoji: 🏃
+colorFrom: pink
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
+Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+>>>>>>> d316991b6322e30d3f3814c7ea09e03ff0ee3f64
