@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Budget Variance Report Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; color: #1a202c; }
+.header { background: #1F4E79; color: white; padding: 24px 40px; }
+.header h1 { font-size: 24px; font-weight: 600; }
+.header p { font-size: 13px; opacity: 0.8; margin-top: 4px; }
+.container { max-width: 1100px; margin: 32px auto; padding: 0 20px; }
+.card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.card h2 { font-size: 16px; font-weight: 600; color: #1F4E79; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; display:flex; align-items:center; justify-content:space-between; }
+.controls { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.control-group { display: flex; flex-direction: column; gap: 4px; }
+label { font-size: 12px; color: #718096; font-weight: 500; }
+input, select { padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; outline: none; }
+button { padding: 9px 20px; background: #1F4E79; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 500; }
+button:hover { background: #2E75B6; }
+button.sec { background: #e2e8f0; color: #1a202c; }
+button.sec:hover { background: #cbd5e0; }
+button.grn { background: #276749; }
+button.grn:hover { background: #2f855a; }
+button.orn { background: #c05621; }
+button.orn:hover { background: #9c4221; }
+.tabs { display: flex; gap: 4px; margin-bottom: 24px; background: white; border-radius: 12px; padding: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.tab { flex: 1; padding: 10px; text-align: center; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; color: #718096; }
+.tab.active { background: #1F4E79; color: white; }
+.score-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.score-label { font-size: 13px; color: #4a5568; width: 210px; flex-shrink: 0; }
+.bar-bg { flex: 1; height: 12px; background: #e2e8f0; border-radius: 6px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 6px; transition: width 0.8s ease; }
+.score-val { font-size: 13px; font-weight: 700; width: 60px; text-align: right; }
+.score-max { font-size: 11px; color: #a0aec0; width: 44px; }
+.final-score { text-align: center; padding: 20px; }
+.final-score .number { font-size: 60px; font-weight: 700; line-height: 1; }
+.final-score .label { font-size: 14px; color: #718096; margin-top: 6px; }
+.final-score .grade { font-size: 18px; font-weight: 600; margin-top: 10px; }
+.src-row { display: flex; gap: 24px; justify-content: center; margin-top: 14px; }
+.src-item { text-align: center; }
+.src-item .val { font-size: 22px; font-weight: 700; }
+.src-item .lbl { font-size: 11px; color: #718096; }
+.report-box { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; font-size: 14px; line-height: 1.8; white-space: pre-wrap; }
+.fb-box { background: #ebf8ff; border-left: 4px solid #2E75B6; padding: 14px 16px; border-radius: 0 8px 8px 0; font-size: 14px; line-height: 1.7; }
+.vtable { width: 100%; border-collapse: collapse; font-size: 14px; }
+.vtable th { background: #1F4E79; color: white; padding: 10px 14px; text-align: left; }
+.vtable td { padding: 10px 14px; border-bottom: 1px solid #e2e8f0; }
+.vtable tr:last-child td { border-bottom: none; }
+.vtable tr:hover td { background: #f7fafc; }
+.pos { color: #276749; font-weight: 600; }
+.neg { color: #c53030; font-weight: 600; }
+.wrn { color: #c05621; font-weight: 600; }
+.badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+.bg { background: #c6f6d5; color: #276749; }
+.br { background: #fed7d7; color: #c53030; }
+.bo { background: #feebc8; color: #c05621; }
+.tasks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.task-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; position: relative; }
+.diff-badge { position: absolute; top: 12px; right: 12px; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.chart-btns { display: flex; gap: 6px; }
+.cbtn { padding: 4px 12px; font-size: 12px; border-radius: 6px; background: #e2e8f0; color: #1a202c; border: none; cursor: pointer; font-weight: 500; }
+.cbtn.active { background: #1F4E79; color: white; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.ch { position: relative; height: 320px; }
+.chpie { position: relative; height: 320px; max-width: 340px; margin: 0 auto; }
+#loading, #allLoading { display: none; text-align: center; padding: 20px; color: #718096; }
+.spin { display: inline-block; width: 20px; height: 20px; border: 3px solid #e2e8f0; border-top-color: #1F4E79; border-radius: 50%; animation: sp 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
+@keyframes sp { to { transform: rotate(360deg); } }
+.pbar { height: 6px; background: #e2e8f0; border-radius: 3px; margin-top: 12px; }
+.pfill { height: 100%; background: #1F4E79; border-radius: 3px; transition: width 0.4s; }
+.empty { text-align: center; padding: 60px 20px; color: #a0aec0; }
+@media(max-width:700px){ .grid2{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Budget Variance Report Viewer</h1>
+  <p>OpenEnv v2.1 — Real-time FP&A Analysis Dashboard</p>
+</div>
+<div class="container">
+
+  <div class="card" style="padding:16px 24px;">
+    <div class="controls">
+      <div class="control-group">
+        <label>API Base URL</label>
+        <input id="apiUrl" value="http://localhost:8000" style="width:240px">
+      </div>
+      <button class="sec" onclick="checkHealth()" style="margin-left:auto">Check Connection</button>
+      <span id="healthStatus" style="font-size:13px;color:#718096;padding:9px 0;"></span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('single')">Single Task Analysis</div>
+    <div class="tab" onclick="showTab('all')">All Tasks Comparison + Charts</div>
+  </div>
+
+  <!-- SINGLE TAB -->
+  <div id="tab-single">
+    <div class="card">
+      <h2>Run Analysis</h2>
+      <div class="controls">
+        <div class="control-group">
+          <label>Select Task</label>
+          <select id="taskSelect" style="width:230px">
+            <option value="easy">Easy — Retail FMCG</option>
+            <option value="easy_saas">Easy — SaaS</option>
+            <option value="medium">Medium — SaaS Mixed</option>
+            <option value="medium_retail_margin">Medium — Margin Trap</option>
+            <option value="hard">Hard — Pharma</option>
+            <option value="hard_saas_churn">Hard — SaaS Churn</option>
+            <option value="hard_edtech_seasonal">Hard — EdTech</option>
+            <option value="hard_conglomerate">Hard — Conglomerate</option>
+          </select>
+        </div>
+        <button onclick="runSingle()">Run Full Analysis</button>
+        <button class="sec" onclick="loadLast()">Load Last Score</button>
+      </div>
+      <div id="loading"><span class="spin"></span> Running analysis...</div>
+    </div>
+
+    <div id="singleContent" style="display:none">
+      <div class="grid2">
+        <div class="card">
+          <h2>Final Score</h2>
+          <div class="final-score">
+            <div class="number" id="finalScore">—</div>
+            <div class="label">out of 1.0</div>
+            <div class="grade" id="scoreGrade">—</div>
+            <div class="src-row">
+              <div class="src-item"><div class="val" id="ruleVal">—</div><div class="lbl">Rule Score (40%)</div></div>
+              <div class="src-item"><div class="val" id="llmVal">—</div><div class="lbl">LLM Score (60%)</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="card"><h2>Score Breakdown</h2><div id="breakdown"></div></div>
+      </div>
+
+      <div class="card">
+        <h2>Rule-Based Score Detail <span style="font-size:12px;font-weight:400;color:#718096">Each criterion contribution</span></h2>
+        <div id="ruleDetail"></div>
+      </div>
+
+      <div class="card">
+        <h2>Variance Data</h2>
+        <table class="vtable"><thead><tr><th>Metric</th><th>Budget</th><th>Actual</th><th>Variance</th><th>Variance %</th><th>Status</th></tr></thead>
+        <tbody id="varianceBody"></tbody></table>
+      </div>
+
+      <div class="card"><h2>AI Generated Report</h2><div class="report-box" id="reportText"></div></div>
+
+      <div class="card" id="fbCard">
+        <h2>LLM Judge Feedback</h2>
+        <div class="fb-box" id="fbBox"></div>
+      </div>
+    </div>
+    <div id="singleEmpty" class="empty card"><div style="font-size:48px;margin-bottom:16px">📊</div><p>Select a task and click Run Full Analysis</p></div>
+  </div>
+
+  <!-- ALL TASKS TAB -->
+  <div id="tab-all" style="display:none">
+    <div class="card">
+      <h2>Run All Tasks</h2>
+      <div class="controls">
+        <button class="grn" onclick="runAll()">Run All 8 Tasks</button>
+        <button class="orn" onclick="runAll(['easy','medium','hard'])">Easy + Medium + Hard Only</button>
+        <span id="allProg" style="font-size:13px;color:#718096;padding:9px 0;"></span>
+      </div>
+      <div id="allLoading"><span class="spin"></span> <span id="allTxt">Running...</span>
+        <div class="pbar"><div class="pfill" id="pfill" style="width:0%"></div></div>
+      </div>
+    </div>
+
+    <div id="allContent" style="display:none">
+      <div class="card">
+        <h2>Score Comparison
+          <div class="chart-btns">
+            <button class="cbtn active" id="cBar" onclick="switchChart('bar')">Bar</button>
+            <button class="cbtn" id="cLine" onclick="switchChart('line')">Line</button>
+            <button class="cbtn" id="cPie" onclick="switchChart('pie')">Pie</button>
+            <button class="cbtn" id="cRadar" onclick="switchChart('radar')">Radar</button>
+          </div>
+        </h2>
+        <div class="ch" id="mainWrap"><canvas id="mainChart"></canvas></div>
+        <div class="chpie" id="pieWrap" style="display:none"><canvas id="pieChart"></canvas></div>
+        <div class="ch" id="radarWrap" style="display:none"><canvas id="radarChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Criterion Breakdown — Stacked</h2>
+        <div class="ch"><canvas id="stackChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Task Results</h2>
+        <div class="tasks-grid" id="tasksGrid"></div>
+      </div>
+
+      <div class="card">
+        <h2>Summary Table</h2>
+        <table class="vtable" id="sumTable">
+          <thead><tr><th>Task</th><th>Difficulty</th><th>Sector</th><th>Final</th><th>Rule</th><th>LLM</th><th>Num</th><th>Drivers</th><th>Norms</th><th>Trap</th></tr></thead>
+          <tbody id="sumBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="allEmpty" class="empty card"><div style="font-size:48px;margin-bottom:16px">🏆</div><p>Click Run All 8 Tasks to compare</p></div>
+  </div>
+
+</div>
+<script>
+const BASE = () => document.getElementById('apiUrl').value.trim();
+let mainCh=null, pieCh=null, radarCh=null, stackCh=null;
+let allResults=[];
+
+const TASKS=[
+  {id:'easy',name:'Retail FMCG Holiday',diff:'easy',sector:'Retail FMCG'},
+  {id:'easy_saas',name:'SaaS Clean Quarter',diff:'easy',sector:'SaaS'},
+  {id:'medium',name:'SaaS Mixed Drivers',diff:'medium',sector:'SaaS'},
+  {id:'medium_retail_margin',name:'Retail Margin Trap',diff:'medium',sector:'Retail FMCG'},
+  {id:'hard',name:'Pharma Crisis',diff:'hard',sector:'Pharma'},
+  {id:'hard_saas_churn',name:'SaaS Churn Trap',diff:'hard',sector:'SaaS'},
+  {id:'hard_edtech_seasonal',name:'EdTech Seasonal',diff:'hard',sector:'EdTech'},
+  {id:'hard_conglomerate',name:'Conglomerate',diff:'hard',sector:'Multi'},
+];
+
+const RULES={
+  numerical_accuracy:{label:'Numerical Accuracy',max:0.20},
+  driver_identification:{label:'Driver Identification',max:0.25},
+  sector_norm_applied:{label:'Sector Norm Applied',max:0.20},
+  format_compliance:{label:'Format Compliance',max:0.20},
+  evidence_quality:{label:'Evidence Quality',max:0.15},
+  seasonality_reasoning:{label:'Seasonality Reasoning',max:0.05},
+  trap_detection:{label:'Trap Detection',max:0.05},
+  hallucination_penalty:{label:'Hallucination Penalty',max:0},
+};
+
+function showTab(t){
+  document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['single','all'][i]===t));
+  document.getElementById('tab-single').style.display=t==='single'?'block':'none';
+  document.getElementById('tab-all').style.display=t==='all'?'block':'none';
+}
+
+async function checkHealth(){
+  const el=document.getElementById('healthStatus');
+  try{const r=await fetch(`${BASE()}/`);const d=await r.json();el.textContent='✅ Connected — '+(d.predefined_tasks||0)+' tasks';el.style.color='#276749';}
+  catch(e){el.textContent='❌ Not connected';el.style.color='#c53030';}
+}
+
+const gc=s=>s>=0.85?'#276749':s>=0.70?'#2E75B6':s>=0.50?'#c05621':'#c53030';
+const gg=s=>s>=0.90?'🏆 Excellent':s>=0.80?'✅ Industry Ready':s>=0.65?'📈 Good':s>=0.50?'⚠️ Needs Work':'❌ Below Standard';
+const fmt=n=>typeof n==='number'?n.toLocaleString():n;
+const pct=n=>(n>0?'+':'')+n+'%';
+
+function renderBars(detail, id){
+  let html='';
+  Object.entries(detail).filter(([k])=>k!=='rule_total').forEach(([k,v])=>{
+    const info=RULES[k]||{label:k,max:0.20};
+    const fill=info.max>0?Math.min(100,(Math.abs(v)/info.max)*100):0;
+    const color=v<0?'#c53030':gc(info.max>0?v/info.max:0.5);
+    html+=`<div class="score-bar">
+      <div class="score-label">${info.label}</div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${fill}%;background:${color}"></div></div>
+      <div class="score-val" style="color:${color}">${v>0?'+':''}${v.toFixed(3)}</div>
+      <div class="score-max">${info.max>0?'/ '+info.max.toFixed(2):''}</div>
+    </div>`;
+  });
+  const tot=detail.rule_total??0;
+  html+=`<div style="margin-top:12px;padding-top:12px;border-top:2px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+    <strong style="color:#1F4E79">Rule Total</strong>
+    <strong style="font-size:20px;color:${gc(tot)}">${tot.toFixed(3)}</strong>
+  </div>`;
+  document.getElementById(id).innerHTML=html;
+}
+
+function renderVariance(obs){
+  let html='';
+  Object.keys(obs.budget).forEach(m=>{
+    const vp=obs.variance_pct[m], va=obs.variances[m];
+    const red=Math.abs(vp)>10;
+    const badge=vp>5?'<span class="badge bg">Favorable</span>':vp<-5?'<span class="badge br">Unfavorable</span>':'<span class="badge bo">Watch</span>';
+    html+=`<tr><td><strong>${m.replace(/_/g,' ')}</strong></td><td>₹${fmt(obs.budget[m])}</td><td>₹${fmt(obs.actual[m])}</td>
+      <td class="${va>=0?'pos':'neg'}">₹${fmt(va)}</td>
+      <td class="${red?'wrn':vp>=0?'pos':'neg'}">${pct(vp)}</td><td>${badge}</td></tr>`;
+  });
+  document.getElementById('varianceBody').innerHTML=html;
+}
+
+function renderFeedback(fb){
+  if(!fb||fb.includes('not available')){document.getElementById('fbCard').style.display='none';return;}
+  document.getElementById('fbCard').style.display='block';
+  let html='';
+  fb.split('|').forEach(p=>{
+    const t=p.trim();
+    if(t.includes('Strength:'))html+=`<p><span style="color:#276749;font-weight:600">💪 ${t}</span></p>`;
+    else if(t.includes('Weakness:'))html+=`<p style="margin-top:8px"><span style="color:#c53030;font-weight:600">⚠️ ${t}</span></p>`;
+    else if(t)html+=`<p>${t}</p>`;
+  });
+  document.getElementById('fbBox').innerHTML=html;
+}
+
+function buildSmartDraft(obs, taskId){
+  const vp = obs.variance_pct;
+  const va = obs.variances;
+  const sector = obs.sector;
+  const fmt_type = obs.requested_format;
+  const metrics = Object.keys(vp);
+
+  // Classify each metric
+  const favorable = metrics.filter(m => vp[m] > 0);
+  const unfavorable = metrics.filter(m => vp[m] < 0);
+  const redFlags = metrics.filter(m => Math.abs(vp[m]) > 10);
+  const hasOffsetTrap = favorable.length > 0 && unfavorable.length > 0;
+
+  // Sector-specific context
+  const SECTOR_CONTEXT = {
+    'Retail FMCG': {
+      threshold: '10%', norm: '±5-8% normal for seasonal quarters',
+      rev_driver: 'holiday promotional campaign and seasonal volume lift',
+      cogs_driver: 'higher input volumes tracking revenue growth',
+      margin_driver: 'promotional spend intensity and product mix shift',
+      red_action: 'review promo ROI and shrinkage rates immediately'
+    },
+    'SaaS': {
+      threshold: '20%', norm: '8-15% variance common due to deal timing',
+      rev_driver: 'new logo attainment and expansion ARR from existing accounts',
+      cogs_driver: 'infrastructure scaling and support headcount additions',
+      margin_driver: 'gross margin compression from hosting cost increases',
+      red_action: 'review ARR churn rate and pipeline coverage ratio'
+    },
+    'Pharma Manufacturing': {
+      threshold: '5%', norm: '<3% COGS variance expected — strict regulatory controls',
+      rev_driver: 'regulatory hold on product release and supply chain disruption',
+      cogs_driver: 'API (Active Pharmaceutical Ingredient) price spike and batch yield loss',
+      margin_driver: 'raw material cost inflation and batch rejection write-offs',
+      red_action: 'immediate escalation — batch failure or API supplier issue investigation required'
+    },
+    'EdTech SaaS': {
+      threshold: '15%', norm: 'revenue spikes around exam seasons are expected',
+      rev_driver: 'exam season enrollment surge and B2B contract timing',
+      cogs_driver: 'new course content production costs and instructor fees',
+      margin_driver: 'content cost overrun relative to revenue growth',
+      red_action: 'review B2B renewal pipeline and content production schedule'
+    }
+  };
+
+  const ctx = SECTOR_CONTEXT[sector] || {
+    threshold: '10%', norm: 'industry norms applied',
+    rev_driver: 'volume and pricing changes', cogs_driver: 'input cost fluctuations',
+    margin_driver: 'cost-revenue mix shift', red_action: 'investigate root causes with operations team'
+  };
+
+  // Build detailed metric lines
+  const metricLines = metrics.map(m => {
+    const pctVal = vp[m], absVal = va[m];
+    const dir = pctVal > 0 ? 'favorable' : 'unfavorable';
+    const breach = Math.abs(pctVal) > 10 ? ` — EXCEEDS ${ctx.threshold} red-flag threshold` : '';
+    const mName = m.replace(/_/g, ' ');
+    let driver = '';
+    if(m.toLowerCase().includes('revenue')) driver = ` driven by ${ctx.rev_driver}`;
+    else if(m.toLowerCase().includes('cogs') || m.toLowerCase().includes('material') || m.toLowerCase().includes('cost')) driver = ` caused by ${ctx.cogs_driver}`;
+    else if(m.toLowerCase().includes('margin')) driver = ` due to ${ctx.margin_driver}`;
+    else if(m.toLowerCase().includes('opex') || m.toLowerCase().includes('expense')) driver = ` attributed to headcount and operational scaling`;
+    return `  • ${mName}: ${pctVal > 0 ? '+' : ''}${pctVal}% ${dir} (₹${Math.abs(absVal).toLocaleString()})${driver}${breach}`;
+  }).join('\n');
+
+  // Trap detection paragraph
+  const trapPara = hasOffsetTrap
+    ? `\nOFFSETTING VARIANCE ALERT: Despite ${favorable.map(m=>m.replace(/_/g,' ')).join(', ')} showing favorable variance, ${unfavorable.map(m=>m.replace(/_/g,' ')).join(', ')} underperformed. The net position may appear acceptable but masks underlying ${unfavorable.length > 0 ? 'revenue weakness' : 'cost pressure'} that requires management attention.`
+    : '';
+
+  // Red flag paragraph
+  const redPara = redFlags.length > 0
+    ? `\nRED FLAG: ${redFlags.map(m => `${m.replace(/_/g,' ')} at ${vp[m] > 0 ? '+' : ''}${vp[m]}%`).join(', ')} exceed the ${sector} red-flag threshold of ${ctx.threshold}. ${ctx.red_action}.`
+    : `\nAll variances within ${sector} acceptable range per ${ctx.norm}.`;
+
+  // Format-specific header
+  const headers = {
+    'one-pager': `ONE-PAGER — ${sector} Budget Variance Analysis`,
+    'board-slide': `BOARD SLIDE — ${sector} Quarterly Variance Summary`,
+    'exception-report': `EXCEPTION REPORT — ${sector} Variance Investigation`,
+    'memo': `INTERNAL MEMO — ${sector} Detailed Variance Analysis`
+  };
+
+  const draft = `${headers[fmt_type] || fmt_type.toUpperCase() + ' — ' + sector}
+Sector Norm: ${ctx.norm}
+
+VARIANCE SUMMARY:
+${metricLines}
+${redPara}${trapPara}
+
+ROOT CAUSE CHAIN:
+${metrics.slice(0,2).map(m => {
+    const mName = m.replace(/_/g,' ');
+    if(m.toLowerCase().includes('revenue')) return `  ${mName} ${vp[m]>0?'beat':'missed'} by ${Math.abs(vp[m])}% → ${ctx.rev_driver} → ${vp[m]>0?'positive volume mix impact':'demand shortfall requires pipeline review'}`;
+    return `  ${mName} variance ${vp[m]>0?'+':''}${vp[m]}% → ${ctx.cogs_driver} → ${Math.abs(vp[m])>10?'immediate investigation required':'monitor next quarter'}`;
+  }).join('\n')}
+
+RECOMMENDATION:
+  1. ${redFlags.length > 0 ? ctx.red_action.charAt(0).toUpperCase() + ctx.red_action.slice(1) : 'Continue monitoring — variances within acceptable range'}
+  2. Review budget assumptions for next quarter based on ${ctx.rev_driver}
+  3. ${hasOffsetTrap ? 'Do not rely on net position — address each variance driver independently' : 'Update sector benchmark assumptions for forward planning'}
+
+EVIDENCE: ${metrics.length} metrics analyzed | ${redFlags.length} red-flag breaches | Sector: ${sector} | Format: ${fmt_type}`;
+
+  return draft;
+}
+
+async function runAnalysisForTask(taskId){
+  const rr=await fetch(`${BASE()}/reset?task_id=${taskId}`);
+  const obs=await rr.json();
+  await fetch(`${BASE()}/step`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:{action_type:'analyze',explanation_text:`Analyzing ${obs.sector} sector variance. Reviewing ${Object.keys(obs.variance_pct).length} metrics against budget.`}})});
+  await fetch(`${BASE()}/step`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:{action_type:'query_norms',norm_query:{sector:obs.sector,metric:'all',question:`What are the red-flag thresholds and common drivers for ${obs.sector}?`}}})});
+
+  const draft = buildSmartDraft(obs, taskId);
+
+  await fetch(`${BASE()}/step`,{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:{action_type:'submit',explanation_text:draft}})});
+  const gr=await fetch(`${BASE()}/grader?detail=true`);
+  const grade=await gr.json();
+  return{taskId,obs,draft,grade};
+}
+
+async function runSingle(){
+  const task=document.getElementById('taskSelect').value;
+  document.getElementById('loading').style.display='block';
+  document.getElementById('singleContent').style.display='none';
+  document.getElementById('singleEmpty').style.display='none';
+  try{
+    const{obs,draft,grade}=await runAnalysisForTask(task);
+    document.getElementById('finalScore').textContent=grade.final_score.toFixed(3);
+    document.getElementById('finalScore').style.color=gc(grade.final_score);
+    document.getElementById('scoreGrade').textContent=gg(grade.final_score);
+    document.getElementById('ruleVal').textContent=grade.rule_score?.toFixed(3)??'—';
+    document.getElementById('ruleVal').style.color=gc(grade.rule_score??0);
+    const llm=grade.llm_score;
+    document.getElementById('llmVal').textContent=llm!=null?llm.toFixed(3):'N/A';
+    if(llm!=null)document.getElementById('llmVal').style.color=gc(llm);
+    renderBars(grade.rule_detail,'breakdown');
+    renderBars(grade.rule_detail,'ruleDetail');
+    renderVariance(obs);
+    document.getElementById('reportText').textContent=draft;
+    renderFeedback(grade.llm_feedback);
+    document.getElementById('singleContent').style.display='block';
+  }catch(e){alert('Error: '+e.message);}
+  finally{document.getElementById('loading').style.display='none';}
+}
+
+async function loadLast(){
+  try{
+    const gr=await fetch(`${BASE()}/grader?detail=true`);
+    const grade=await gr.json();
+    if(grade.error){alert(grade.error);return;}
+    document.getElementById('finalScore').textContent=grade.final_score.toFixed(3);
+    document.getElementById('finalScore').style.color=gc(grade.final_score);
+    document.getElementById('scoreGrade').textContent=gg(grade.final_score);
+    document.getElementById('ruleVal').textContent=grade.rule_score?.toFixed(3)??'—';
+    const llm=grade.llm_score;
+    document.getElementById('llmVal').textContent=llm!=null?llm.toFixed(3):'N/A';
+    renderBars(grade.rule_detail,'breakdown');
+    renderBars(grade.rule_detail,'ruleDetail');
+    renderFeedback(grade.llm_feedback);
+    document.getElementById('reportText').textContent='Run full analysis to see the generated report.';
+    document.getElementById('singleContent').style.display='block';
+    document.getElementById('singleEmpty').style.display='none';
+  }catch(e){alert('Error: '+e.message);}
+}
+
+async function runAll(ids){
+  const taskIds=ids||TASKS.map(t=>t.id);
+  document.getElementById('allLoading').style.display='block';
+  document.getElementById('allContent').style.display='none';
+  document.getElementById('allEmpty').style.display='none';
+  allResults=[];
+  for(let i=0;i<taskIds.length;i++){
+    const id=taskIds[i];
+    const meta=TASKS.find(t=>t.id===id)||{id,name:id,diff:'custom',sector:'?'};
+    document.getElementById('allTxt').textContent=`Running: ${meta.name} (${i+1}/${taskIds.length})`;
+    document.getElementById('pfill').style.width=((i/taskIds.length)*100)+'%';
+    try{const r=await runAnalysisForTask(id);allResults.push({...r,meta});}
+    catch(e){allResults.push({taskId:id,meta,grade:{final_score:0,rule_score:0,llm_score:null,rule_detail:{}},obs:null,draft:''});}
+  }
+  document.getElementById('pfill').style.width='100%';
+  document.getElementById('allLoading').style.display='none';
+  document.getElementById('allProg').textContent=`✅ ${taskIds.length} tasks done`;
+  renderAllResults();
+  document.getElementById('allContent').style.display='block';
+}
+
+function renderAllResults(){
+  renderTaskCards();
+  renderSumTable();
+  switchChart('bar');
+  renderStack();
+}
+
+function renderTaskCards(){
+  document.getElementById('tasksGrid').innerHTML=allResults.map(r=>{
+    const s=r.grade.final_score,diff=r.meta.diff||'custom';
+    const diffColor=diff==='easy'?'background:#c6f6d5;color:#276749':diff==='medium'?'background:#feebc8;color:#c05621':'background:#fed7d7;color:#c53030';
+    return`<div class="task-card">
+      <span class="diff-badge" style="${diffColor}">${diff.toUpperCase()}</span>
+      <div style="font-weight:600;font-size:14px;margin-bottom:4px">${r.meta.name||r.taskId}</div>
+      <div style="font-size:12px;color:#718096;margin-bottom:12px">${r.meta.sector||''}</div>
+      <div style="font-size:32px;font-weight:700;color:${gc(s)}">${s.toFixed(3)}</div>
+      <div style="font-size:13px;color:${gc(s)};margin-top:4px">${gg(s)}</div>
+      <div style="font-size:12px;color:#718096;margin-top:8px">Rule: ${r.grade.rule_score?.toFixed(3)??'—'} | LLM: ${r.grade.llm_score!=null?r.grade.llm_score.toFixed(3):'N/A'}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderSumTable(){
+  document.getElementById('sumBody').innerHTML=allResults.map(r=>{
+    const d=r.grade.rule_detail||{},s=r.grade.final_score;
+    const diffCls=r.meta.diff==='easy'?'bg':r.meta.diff==='medium'?'bo':'br';
+    return`<tr>
+      <td><strong>${r.meta.name||r.taskId}</strong></td>
+      <td><span class="badge ${diffCls}">${r.meta.diff||'—'}</span></td>
+      <td>${r.meta.sector||'—'}</td>
+      <td style="color:${gc(s)};font-weight:700">${s.toFixed(3)}</td>
+      <td>${r.grade.rule_score?.toFixed(3)??'—'}</td>
+      <td>${r.grade.llm_score!=null?r.grade.llm_score.toFixed(3):'N/A'}</td>
+      <td>${(d.numerical_accuracy??0).toFixed(2)}</td>
+      <td>${(d.driver_identification??0).toFixed(2)}</td>
+      <td>${(d.sector_norm_applied??0).toFixed(2)}</td>
+      <td>${(d.trap_detection??0).toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+let curChart='bar';
+function switchChart(type){
+  curChart=type;
+  ['Bar','Line','Pie','Radar'].forEach(t=>document.getElementById('c'+t).classList.toggle('active',t.toLowerCase()===type));
+  document.getElementById('mainWrap').style.display=(type==='pie'||type==='radar')?'none':'block';
+  document.getElementById('pieWrap').style.display=type==='pie'?'block':'none';
+  document.getElementById('radarWrap').style.display=type==='radar'?'block':'none';
+  if(type==='pie')renderPie();
+  else if(type==='radar')renderRadar();
+  else renderMain(type);
+}
+
+function renderMain(type){
+  if(mainCh)mainCh.destroy();
+  const labels=allResults.map(r=>r.meta.name||r.taskId);
+  const ctx=document.getElementById('mainChart').getContext('2d');
+  mainCh=new Chart(ctx,{
+    type:type==='line'?'line':'bar',
+    data:{labels,datasets:[
+      {label:'Final Score',data:allResults.map(r=>r.grade.final_score),backgroundColor:'rgba(31,78,121,0.8)',borderColor:'#1F4E79',borderWidth:2,fill:type==='line',tension:0.4},
+      {label:'Rule Score',data:allResults.map(r=>r.grade.rule_score??0),backgroundColor:'rgba(46,117,182,0.6)',borderColor:'#2E75B6',borderWidth:2,fill:false,tension:0.4},
+      {label:'LLM Score',data:allResults.map(r=>r.grade.llm_score??0),backgroundColor:'rgba(39,103,73,0.5)',borderColor:'#276749',borderWidth:2,fill:false,tension:0.4},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:0,max:1,ticks:{stepSize:0.1}}},
+      plugins:{legend:{position:'top'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.raw.toFixed(3)}`}}}}
+  });
+}
+
+function renderPie(){
+  if(pieCh)pieCh.destroy();
+  const labels=allResults.map(r=>r.meta.name||r.taskId);
+  const data=allResults.map(r=>r.grade.final_score);
+  const colors=data.map(s=>gc(s));
+  const ctx=document.getElementById('pieChart').getContext('2d');
+  pieCh=new Chart(ctx,{type:'pie',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right'},
+      tooltip:{callbacks:{label:c=>`${c.label}: ${c.raw.toFixed(3)}`}}}}});
+}
+
+function renderRadar(){
+  if(radarCh)radarCh.destroy();
+  const labels=allResults.map(r=>r.meta.name||r.taskId);
+  const ctx=document.getElementById('radarChart').getContext('2d');
+  radarCh=new Chart(ctx,{type:'radar',
+    data:{labels,datasets:[
+      {label:'Final Score',data:allResults.map(r=>r.grade.final_score),borderColor:'#1F4E79',backgroundColor:'rgba(31,78,121,0.2)'},
+      {label:'Rule Score',data:allResults.map(r=>r.grade.rule_score??0),borderColor:'#2E75B6',backgroundColor:'rgba(46,117,182,0.15)'},
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,scales:{r:{min:0,max:1}},plugins:{legend:{position:'top'}}}
+  });
+}
+
+function renderStack(){
+  if(stackCh)stackCh.destroy();
+  const labels=allResults.map(r=>r.meta.name||r.taskId);
+  const criteria=['numerical_accuracy','driver_identification','sector_norm_applied','format_compliance','evidence_quality','trap_detection'];
+  const criLbls=['Num Acc','Drivers','Norms','Format','Evidence','Trap'];
+  const colors=['#1F4E79','#2E75B6','#276749','#c05621','#6b46c1','#c53030'];
+  const ctx=document.getElementById('stackChart').getContext('2d');
+  stackCh=new Chart(ctx,{type:'bar',
+    data:{labels,datasets:criteria.map((c,i)=>({
+      label:criLbls[i],data:allResults.map(r=>r.grade.rule_detail?.[c]??0),
+      backgroundColor:colors[i]+'CC',borderColor:colors[i],borderWidth:1}))},
+    options:{responsive:true,maintainAspectRatio:false,
+      scales:{x:{stacked:true},y:{stacked:true,min:0,max:1}},
+      plugins:{legend:{position:'top'},tooltip:{mode:'index'}}}
+  });
+}
+</script>
+</body>
+</html>
