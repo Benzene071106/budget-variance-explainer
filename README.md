@@ -24,7 +24,7 @@ FP&A Budget Variance Analysis with LLM-as-judge grader. Supports any sector dyna
 
 Set these in Space Settings → Secrets:
 
-- `HF_TOKEN` — Your Groq API key
+- `HF_TOKEN` — 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 
 - `API_BASE_URL` — https://api.groq.com/openai/v1
 - `MODEL_NAME` — llama-3.3-70b-versatile
 - `GRADER_MODEL` — llama-3.3-70b-versatile
