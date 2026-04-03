@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Dict, Optional
+from fastapi.encoders import jsonable_encoder
 import uvicorn
 import os
 import json
@@ -147,13 +148,22 @@ def get_grader_score(task_id: str = None, detail: bool = False):
 def run_baseline(tasks: str = "easy,medium,hard"):
     task_list = [t.strip() for t in tasks.split(",") if t.strip()]
     invalid = [t for t in task_list if t not in TASK_LIBRARY]
+    
     if invalid:
         raise HTTPException(status_code=400, detail=f"Unknown task IDs: {invalid}")
+    
     try:
         from inference import run_inference
         scores = run_inference(task_ids=task_list)
-        return {"status": "success", "baseline_scores": scores,
-                "average": round(sum(scores.values()) / len(scores), 3)}
+
+        scores = jsonable_encoder(scores)
+
+        return {
+            "status": "success",
+            "baseline_scores": scores,
+            "average": round(sum(scores.values()) / len(scores), 3)
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Baseline error: {str(e)}")
 
