@@ -2,9 +2,7 @@ from typing import Tuple, Dict, Any, List
 import uuid
 from models import Observation, Action, Reward
 
-# ─────────────────────────────────────────────
-# 1. SECTOR NORMS — real benchmarks with sources
-# ─────────────────────────────────────────────
+
 SECTOR_NORMS: Dict[str, Dict] = {
     "Retail FMCG": {
         "revenue_tolerance_pct": (-8, +15),
@@ -98,9 +96,7 @@ SECTOR_NORMS: Dict[str, Dict] = {
 }
 
 
-# ─────────────────────────────────────────────
-# 2. FORMAT TEMPLATES
-# ─────────────────────────────────────────────
+
 FORMAT_TEMPLATES: Dict[str, Dict] = {
     "one-pager": {
         "max_words": 300,
@@ -158,11 +154,9 @@ FORMAT_TEMPLATES: Dict[str, Dict] = {
 }
 
 
-# ─────────────────────────────────────────────
-# 3. TASK LIBRARY — 8 tasks (easy → hard)
-# ─────────────────────────────────────────────
+
 TASK_LIBRARY: Dict[str, Dict] = {
-    # ── EASY ────────────────────────────────────────────────────────
+    
     "easy": {
         "name": "Retail FMCG — Holiday Surge",
         "difficulty": "easy",
@@ -186,7 +180,7 @@ TASK_LIBRARY: Dict[str, Dict] = {
         "trap": None
     },
 
-    # ── MEDIUM ──────────────────────────────────────────────────────
+
     "medium": {
         "name": "SaaS — Mixed Volume + Deal-Size",
         "difficulty": "medium",
@@ -219,7 +213,7 @@ TASK_LIBRARY: Dict[str, Dict] = {
         "trap": "favorable_revenue_hides_margin_erosion"
     },
 
-    # ── HARD ────────────────────────────────────────────────────────
+   
     "hard": {
         "name": "Pharma Manufacturing — Multi-Driver Crisis",
         "difficulty": "hard",
@@ -285,7 +279,7 @@ TASK_LIBRARY: Dict[str, Dict] = {
     "hard_conglomerate": {
         "name": "Conglomerate Rollup — Cross-Sector",
         "difficulty": "hard",
-        "sector": "Retail FMCG",   # primary sector
+        "sector": "Retail FMCG",  
         "budget": {
             "Retail_Revenue": 1_000_000, "Pharma_Revenue": 500_000,
             "Total_Revenue": 1_500_000, "Total_COGS": 900_000,
@@ -307,9 +301,7 @@ TASK_LIBRARY: Dict[str, Dict] = {
 }
 
 
-# ─────────────────────────────────────────────
-# 4. ENVIRONMENT
-# ─────────────────────────────────────────────
+
 class BudgetVarianceEnv:
     def __init__(self):
         self.episode_id: str = ""
@@ -326,7 +318,7 @@ class BudgetVarianceEnv:
         self.format_template: Dict = {}
         self._hallucination_count: int = 0
 
-    # ── reset ──────────────────────────────────────────────────────
+
     def reset(self, task_id: str = "easy") -> Observation:
         if task_id not in TASK_LIBRARY:
             raise ValueError(
@@ -365,20 +357,20 @@ class BudgetVarianceEnv:
             hint=cfg["hint"]
         )
 
-    # ── step ───────────────────────────────────────────────────────
+   
     def step(self, action: Action) -> Tuple[Observation, Reward, bool, Dict[str, Any]]:
         self.step_count += 1
         reward_value = 0.0
         breakdown: Dict[str, float] = {}
         reason = "Action taken"
 
-        # ── 1. analyze ──────────────────────────────────────────
+       
         if action.action_type == "analyze":
             reward_value = 0.10
             breakdown["analysis_base"] = 0.10
             reason = "Analysis step — good start"
 
-        # ── 2. calculate — verify math, penalise hallucinations ──
+       
         elif action.action_type == "calculate":
             if action.calculations:
                 correct = 0
@@ -401,7 +393,6 @@ class BudgetVarianceEnv:
                 reward_value = 0.05
                 reason = "Calculate without calculations field — partial credit"
 
-        # ── 3. query_norms ──────────────────────────────────────
         elif action.action_type == "query_norms":
             if action.norm_query and action.norm_query.sector in SECTOR_NORMS:
                 reward_value = 0.20
@@ -411,12 +402,12 @@ class BudgetVarianceEnv:
                 reward_value = 0.10
                 reason = "query_norms without valid norm_query"
 
-        # ── 4. draft ────────────────────────────────────────────
+       
         elif action.action_type == "draft":
             reward_value = 0.15
             breakdown["draft_base"] = 0.15
             if action.structured_output:
-                # Bonus for structured output with drivers
+                
                 reward_value += 0.10
                 breakdown["structured_bonus"] = 0.10
                 if action.structured_output.risk_flag and not action.structured_output.risk_reason:
@@ -426,7 +417,7 @@ class BudgetVarianceEnv:
                 self.previous_drafts.append(action.explanation_text)
             reason = "Draft created"
 
-        # ── 5. revise ───────────────────────────────────────────
+  
         elif action.action_type == "revise":
             if len(self.previous_drafts) == 0:
                 reward_value = -0.05
@@ -437,7 +428,7 @@ class BudgetVarianceEnv:
             if action.explanation_text:
                 self.previous_drafts.append(action.explanation_text)
 
-        # ── 6. submit ───────────────────────────────────────────
+       
         elif action.action_type == "submit":
             self.done = True
             base_submit = 0.20
@@ -452,12 +443,12 @@ class BudgetVarianceEnv:
                 reward_value += 0.05
                 breakdown["efficiency_bonus"] = 0.05
 
-            # Format compliance bonus
+           
             if action.structured_output:
                 reward_value += 0.15
                 breakdown["format_compliance"] = 0.15
 
-            # Risk flag correctness
+          
             cfg = self.current_task_config
             norms = self.sector_norms
             threshold = norms.get("red_flag_threshold_pct", 10.0)
@@ -475,7 +466,7 @@ class BudgetVarianceEnv:
 
             reason = "Final report submitted"
 
-        # Clip reward
+       
         reward_value = round(max(-1.0, min(1.0, reward_value)), 3)
         variances, variance_pct = self._calc_variances()
 
@@ -505,7 +496,7 @@ class BudgetVarianceEnv:
             "task_trap": self.current_task_config.get("trap")
         }
 
-    # ── state ──────────────────────────────────────────────────────
+    
     def state(self) -> Dict[str, Any]:
         return {
             "episode_id": self.episode_id,
@@ -537,7 +528,7 @@ class BudgetVarianceEnv:
             for tid, cfg in TASK_LIBRARY.items()
         ]
 
-    # ── internal ───────────────────────────────────────────────────
+ 
     def _calc_variances(self):
         variances = {
             k: round(self.actual.get(k, 0) - self.budget.get(k, 0), 2)
