@@ -2,9 +2,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Dict, List, Optional, Literal
 
 
-# ─────────────────────────────────────────────
-# Sub-models for richer structured actions
-# ─────────────────────────────────────────────
+
 
 class Driver(BaseModel):
     """One identified root-cause driver with evidence"""
@@ -75,9 +73,6 @@ class StructuredReport(BaseModel):
     )
 
 
-# ─────────────────────────────────────────────
-# Core env types
-# ─────────────────────────────────────────────
 
 class Observation(BaseModel):
     """Observation returned after reset() or step()"""
@@ -88,7 +83,7 @@ class Observation(BaseModel):
     variances: Dict[str, float]
     variance_pct: Dict[str, float]
     requested_format: str
-    format_requirements: Optional[Dict] = None   # injected from FORMAT_TEMPLATES
+    format_requirements: Optional[Dict] = None   
     previous_drafts: List[str]
     step_count: int
     hint: Optional[str] = None
@@ -101,15 +96,15 @@ class Action(BaseModel):
     """Action the agent can take"""
     action_type: Literal["analyze", "calculate", "query_norms", "draft", "revise", "submit"]
 
-    # analyze / calculate
+    
     calculations: Optional[List[VarianceCalculation]] = Field(
         default=None, description="Math verification rows — one per metric"
     )
 
-    # query_norms
+   
     norm_query: Optional[NormQuery] = None
 
-    # draft / revise / submit
+   
     selected_drivers: Optional[List[str]] = None
     explanation_text: Optional[str] = None
     structured_output: Optional[StructuredReport] = None
