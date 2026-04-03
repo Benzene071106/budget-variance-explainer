@@ -239,21 +239,32 @@ class VarianceGrader:
             if any(w in draft_lower for w in known_kws):
                 score += 0.5
         else:
-            # Dynamic sector — check if any common driver words appear
+            # Dynamic/unknown sector — check universal finance + context words
+            universal_sector_words = [
+                "commodity", "material", "labor", "workforce", "operational",
+                "escalation", "investigation", "supplier", "procurement",
+                "seasonal", "demand", "supply", "inflation", "cost overrun",
+                "margin compression", "root cause", "corrective"
+            ]
+            hits = sum(1 for w in universal_sector_words if w in draft_lower)
+            if hits >= 3:
+                score += 0.5
+            elif hits >= 1:
+                score += 0.25
+            # Also try dynamic norms
             try:
                 from dynamic_env import get_or_generate_norms
                 norms = get_or_generate_norms(sector)
                 drivers = norms.get("common_drivers", [])
                 driver_words = [d.split()[0].lower() for d in drivers]
                 if any(w in draft_lower for w in driver_words):
-                    score += 0.5
-                # Also check red_flags
+                    score = min(1.0, score + 0.25)
                 red_flags = norms.get("red_flags", [])
                 flag_words = [f.split()[0].lower() for f in red_flags]
                 if any(w in draft_lower for w in flag_words):
-                    score += 0.25
+                    score = min(1.0, score + 0.25)
             except Exception:
-                score += 0.25  # partial credit for unknown sector
+                pass
 
         return min(1.0, score)
 
