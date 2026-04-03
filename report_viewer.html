@@ -86,7 +86,7 @@ button.orn:hover { background: #9c4221; }
     <div class="controls">
       <div class="control-group">
         <label>API Base URL</label>
-        <input id="apiUrl" value="http://localhost:8000" style="width:240px">
+        <input id="apiUrl" value="" style="width:280px" placeholder="Auto-detecting...">
       </div>
       <button class="sec" onclick="checkHealth()" style="margin-left:auto">Check Connection</button>
       <span id="healthStatus" style="font-size:13px;color:#718096;padding:9px 0;"></span>
@@ -214,6 +214,14 @@ button.orn:hover { background: #9c4221; }
 </div>
 <script>
 const BASE = () => document.getElementById('apiUrl').value.trim();
+
+// Auto-detect API URL
+(function(){
+  const host = window.location.origin;
+  const isLocal = host.includes('localhost') || host.includes('127.0.0.1');
+  const apiUrl = isLocal ? 'http://localhost:8000' : host;
+  document.getElementById('apiUrl').value = apiUrl;
+})();
 let mainCh=null, pieCh=null, radarCh=null, stackCh=null;
 let allResults=[];
 
