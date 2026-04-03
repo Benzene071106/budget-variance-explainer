@@ -1,6 +1,6 @@
 ---
 title: Budget Variance Explainer
-emoji: 📊
+
 colorFrom: blue
 colorTo: green
 sdk: docker
