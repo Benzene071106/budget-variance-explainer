@@ -13,9 +13,7 @@ import re
 
 from models import Observation, Action, Reward
 
-# ─────────────────────────────────────────────
-# Known sector norms cache (pre-defined + LLM-generated dono)
-# ─────────────────────────────────────────────
+
 _NORMS_CACHE: Dict[str, Dict] = {
     "Retail FMCG": {
         "revenue_tolerance_pct": (-8, 15),
@@ -91,9 +89,7 @@ FORMAT_TEMPLATES: Dict[str, Dict] = {
 }
 
 
-# ─────────────────────────────────────────────
-# LLM-powered norm generator for unknown sectors
-# ─────────────────────────────────────────────
+
 def _generate_norms_via_llm(sector: str, metrics: List[str]) -> Dict:
     """
     Agar sector unknown hai → LLM se norms generate karo.
@@ -140,7 +136,7 @@ Use realistic industry benchmarks. Be specific to {sector}."""
         return norms
 
     except Exception as e:
-        # Fallback: generic norms
+      
         return {
             "revenue_tolerance_pct": (-10, 10),
             "cogs_tolerance_pct": (-8, 8),
@@ -166,9 +162,7 @@ def get_or_generate_norms(sector: str, metrics: List[str] = None) -> Dict:
     return norms
 
 
-# ─────────────────────────────────────────────
-# Dynamic Environment
-# ─────────────────────────────────────────────
+
 class DynamicBudgetVarianceEnv:
     """
     Fully dynamic environment — koi bhi sector, koi bhi metrics.
@@ -238,7 +232,7 @@ class DynamicBudgetVarianceEnv:
         self._is_custom = True
         metrics = list(budget.keys())
 
-        # Auto-generate norms for unknown sector
+      
         norms = get_or_generate_norms(sector, metrics)
 
         hint_parts = [f"Custom task: {sector} analysis."]
@@ -274,7 +268,6 @@ class DynamicBudgetVarianceEnv:
             }
         )
 
-    # ── Internal setup ─────────────────────────
     def _setup_episode(self, task_id, sector, budget, actual,
                        requested_format, hint, task_config) -> Observation:
         self.episode_id = str(uuid.uuid4())
@@ -307,7 +300,7 @@ class DynamicBudgetVarianceEnv:
             hint=hint
         )
 
-    # ── step() — same as before ────────────────
+    
     def step(self, action: Action) -> Tuple[Observation, Reward, bool, Dict[str, Any]]:
         from env import BudgetVarianceEnv
         # Reuse existing step logic by delegating
@@ -371,7 +364,7 @@ class DynamicBudgetVarianceEnv:
                 reward_value += 0.15
                 breakdown["format_compliance"] = 0.15
 
-            # Risk flag check
+            
             _, variance_pct = self._calc_variances()
             threshold = self.sector_norms.get("red_flag_threshold_pct", 10.0)
             any_breach = any(abs(v) > threshold for v in variance_pct.values())
