@@ -59,7 +59,7 @@ def get_tasks():
         "custom": "POST /reset/custom to use your own sector and financial data"
     }
 
-@app.get("/reset")
+@app.post("/reset")
 def reset(task_id: str = "easy"):
     global current_observation, current_final_draft, _active_env
     current_final_draft = None
