@@ -10,7 +10,7 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-# Spec requires HF_TOKEN — support both HF_TOKEN and OPENAI_API_KEY
+
 _API_KEY = HF_TOKEN or os.getenv("OPENAI_API_KEY", "no-key")
 
 client = OpenAI(
@@ -19,9 +19,6 @@ client = OpenAI(
 )
 
 
-# ─────────────────────────────────────────────
-# SYSTEM PROMPT — injected once per episode
-# ─────────────────────────────────────────────
 SYSTEM_PROMPT = """You are a senior FP&A analyst AI agent. Each step return ONLY a valid JSON object.
 
 STEP SEQUENCE:
@@ -98,7 +95,7 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
 
     action_type = raw.get("action_type", "analyze")
 
-    # Build calculations list if present
+
     calculations = None
     if raw.get("calculations"):
         calculations = []
@@ -106,9 +103,8 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
             try:
                 calculations.append(VarianceCalculation(**c))
             except Exception:
-                pass  # skip invalid calc rows
+                pass  
 
-    # Build norm_query if present
     norm_query = None
     if raw.get("norm_query"):
         try:
@@ -116,15 +112,15 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
         except Exception:
             pass
 
-    # Build structured_output if present
+
     structured_output = None
     if raw.get("structured_output"):
         try:
             so = raw["structured_output"]
-            # Fix: executive_summary sometimes comes as list — join it
+         
             if isinstance(so.get("executive_summary"), list):
                 so["executive_summary"] = " ".join(so["executive_summary"])
-            # Fix: ensure drivers is a list with at least one item
+         
             raw_drivers = so.get("drivers", [])
             if not raw_drivers:
                 raw_drivers = [{
@@ -145,7 +141,7 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
                     evidence=f"Variance identified in {obs_dict.get('sector')} sector"
                 )]
             so["drivers"] = drivers
-            # Fix: add missing required fields with defaults
+
             if "variance_table" not in so:
                 so["variance_table"] = obs_dict.get("variance_pct", {})
             if "sector_norm_applied" not in so:
@@ -157,7 +153,7 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
             structured_output = StructuredReport(**so)
         except Exception as e:
             print(f"  structured_output parse error: {e}")
-            # Still try to get explanation_text from the raw structured_output
+          
             if not raw.get("explanation_text") and raw.get("structured_output"):
                 so = raw["structured_output"]
                 summary = so.get("executive_summary", "")
@@ -183,13 +179,13 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
 def get_model_response(obs_dict: dict, task_id: str, history: list, step: int) -> Action:
     """Build messages and get next action from LLM"""
 
-    # On step 3, inject sector norms into context
+   
     sector_norms_context = ""
     if step == 3:
         norms = SECTOR_NORMS.get(obs_dict.get("sector", ""), {})
         sector_norms_context = f"\nSECTOR NORMS FOR {obs_dict.get('sector')}:\n{json.dumps(norms, indent=2)}\n"
 
-    # Build variance summary for prompt
+ 
     vp = obs_dict.get("variance_pct", {})
     va = obs_dict.get("variances", {})
     variance_lines = "\n".join([
@@ -245,7 +241,7 @@ def run_inference(task_ids: list = None) -> Dict:
         step = 0
         cumulative_reward = 0.0
 
-        # ── [START] log ────────────────────────────────────────────
+       
         print(json.dumps({
             "event": "START",
             "task_id": task_id,
@@ -265,7 +261,7 @@ def run_inference(task_ids: list = None) -> Dict:
             obs, reward, done, info = env.step(action)
             cumulative_reward += reward.value
 
-            # ── [STEP] log ─────────────────────────────────────────
+            
             print(json.dumps({
                 "event": "STEP",
                 "task_id": task_id,
@@ -283,7 +279,7 @@ def run_inference(task_ids: list = None) -> Dict:
             if done:
                 break
 
-        # Grade final submission — fallback chain
+        
         final_text = ""
         if action.structured_output:
             try:
@@ -314,7 +310,7 @@ def run_inference(task_ids: list = None) -> Dict:
             "grader_detail": grade_detail
         }
 
-        # ── [END] log ──────────────────────────────────────────────
+       
         print(json.dumps({
             "event": "END",
             "task_id": task_id,
@@ -327,7 +323,6 @@ def run_inference(task_ids: list = None) -> Dict:
             "llm_feedback": grade_detail.get("llm_feedback", "")
         }))
 
-    # Final summary log
     summary = {tid: r["score"] for tid, r in results.items()}
     print(json.dumps({
         "event": "SUMMARY",
