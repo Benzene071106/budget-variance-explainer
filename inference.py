@@ -128,19 +128,31 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
                     "direction": "favorable",
                     "evidence": f"Variance data from {obs_dict.get('sector')} sector analysis"
                 }]
-            drivers = []
-            for d in raw_drivers:
-                try:
-                    drivers.append(Driver(**d))
-                except Exception:
-                    pass
-            if not drivers:
-                drivers = [Driver(
-                    name="variance_driver",
-                    direction="favorable",
-                    evidence=f"Variance identified in {obs_dict.get('sector')} sector"
-                )]
-            so["drivers"] = drivers
+          drivers = []
+for d in raw_drivers:
+    try:
+        driver_obj = Driver(**d)
+        
+        # ✅ convert to JSON-safe dict
+        drivers.append({
+            "name": driver_obj.name,
+            "direction": driver_obj.direction,
+            "estimated_impact": getattr(driver_obj, "estimated_impact", None),
+            "evidence": driver_obj.evidence
+        })
+    except Exception:
+        pass
+
+# fallback if empty
+if not drivers:
+    drivers = [{
+        "name": "variance_driver",
+        "direction": "favorable",
+        "estimated_impact": None,
+        "evidence": f"Variance identified in {obs_dict.get('sector')} sector"
+    }]
+
+so["drivers"] = drivers
 
             if "variance_table" not in so:
                 so["variance_table"] = obs_dict.get("variance_pct", {})
