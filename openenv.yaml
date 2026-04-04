@@ -1,5 +1,8 @@
 name: budget-variance-explainer
 version: 2.0.0
+
+runtime:
+  entrypoint: server.app:main
 description: >
   Budget Variance Analysis & Root-Cause Explainer with sector-specific norms.
   Agent must compute variances, identify drivers, apply industry calibration
