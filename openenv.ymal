@@ -1,0 +1,139 @@
+	name: budget-variance-explainer
+version: 2.0.0
+
+runtime:
+  entrypoint: server.app:main
+description: >
+  Budget Variance Analysis & Root-Cause Explainer with sector-specific norms.
+  Agent must compute variances, identify drivers, apply industry calibration
+  (Retail FMCG, SaaS, Pharma Manufacturing, EdTech SaaS), and produce
+  structured audit-ready explanations. Supports ANY custom sector via dynamic
+  LLM-powered norm generation.
+author: Harshit
+tags:
+  - finance
+  - variance-analysis
+  - fp-and-a
+  - root-cause
+  - structured-output
+  - openenv
+  - dynamic-sector
+
+env:
+  API_BASE_URL:
+    description: The API endpoint for the LLM (e.g. https://api.openai.com/v1 or Groq)
+    required: true
+  MODEL_NAME:
+    description: The model identifier to use for inference (e.g. gpt-4o-mini)
+    required: true
+  HF_TOKEN:
+    description: Your Hugging Face / API key — used as primary API key
+    required: true
+  GRADER_MODEL:
+    description: Model for LLM-as-judge grader (defaults to MODEL_NAME)
+    required: false
+
+tasks:
+  - id: easy
+    name: Easy — Retail FMCG Holiday Surge
+    difficulty: easy
+    description: Single driver holiday promotion variance. Output one-pager using Retail FMCG norms.
+    sector: Retail FMCG
+    format: one-pager
+
+  - id: easy_saas
+    name: Easy — SaaS Clean Quarter
+    difficulty: easy
+    description: Simple new logo attainment. Output one-pager using SaaS norms.
+    sector: SaaS
+    format: one-pager
+
+  - id: medium
+    name: Medium — SaaS Mixed Volume + Deal-Size
+    difficulty: medium
+    description: Mixed volume and deal-size variance. Output board-slide using SaaS norms.
+    sector: SaaS
+    format: board-slide
+
+  - id: medium_retail_margin
+    name: Medium — Retail FMCG Revenue Up but Margin Squeezed (TRAP)
+    difficulty: medium
+    description: >
+      Revenue up 10% but margin only grew 1.7%. Promo spend blew out 73%.
+      Agent must detect that volume lift came at too high a cost.
+    sector: Retail FMCG
+    format: board-slide
+    has_trap: true
+
+  - id: hard
+    name: Hard — Pharma Manufacturing Multi-Driver Crisis
+    difficulty: hard
+    description: >
+      Complex multi-driver variance. COGS overrun 8.9% is catastrophic by
+      pharma norms. Revenue miss likely regulatory hold or supply issue.
+    sector: Pharma Manufacturing
+    format: exception-report
+
+  - id: hard_saas_churn
+    name: Hard — SaaS Churn Quarter Offsetting Variances (TRAP)
+    difficulty: hard
+    description: >
+      Revenue miss but cost saves make EBITDA look OK. Agent must flag
+      that this signals lost customers AND hiring freeze — not health.
+    sector: SaaS
+    format: exception-report
+    has_trap: true
+
+  - id: hard_edtech_seasonal
+    name: Hard — EdTech SaaS Exam Season + B2B Slip
+    difficulty: hard
+    description: >
+      B2C beat by 25% due to exam season but B2B contracts slipped.
+      Content cost overran 45%. Apply EdTech SaaS norms.
+    sector: EdTech SaaS
+    format: memo
+
+  - id: hard_conglomerate
+    name: Hard — Conglomerate Cross-Sector Rollup (TRAP)
+    difficulty: hard
+    description: >
+      Retail beat plan, Pharma missed badly. Consolidated GM down despite
+      revenue beat. Agent must apply different norms per division.
+    sector: Retail FMCG
+    format: board-slide
+    has_trap: true
+
+observation_space:
+  type: structured
+  fields:
+    - task_id (string)
+    - sector (string)
+    - budget (dict)
+    - actual (dict)
+    - variances (dict)
+    - variance_pct (dict)
+    - requested_format (string)
+    - format_requirements (dict)
+    - previous_drafts (list)
+    - step_count (int)
+    - hint (string)
+
+action_space:
+  type: structured
+  actions:
+    - analyze
+    - calculate
+    - query_norms
+    - draft
+    - revise
+    - submit
+
+reward_type: dense
+episode_max_steps: 20
+
+custom_task_support:
+  enabled: true
+  endpoint: POST /reset/custom
+  description: >
+    Any sector supported via dynamic LLM-powered norm generation.
+    Pass sector name, budget dict, actual dict, and format.
