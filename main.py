@@ -8,8 +8,6 @@ import uvicorn
 import os
 import json
 
-
-
 from models import Observation, Action, Reward
 from env import BudgetVarianceEnv, SECTOR_NORMS, FORMAT_TEMPLATES, TASK_LIBRARY
 from dynamic_env import DynamicBudgetVarianceEnv, get_or_generate_norms
@@ -176,4 +174,4 @@ def report_viewer():
     return FileResponse(viewer_path)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=7860)
