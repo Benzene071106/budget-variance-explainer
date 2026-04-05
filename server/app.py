@@ -5,13 +5,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
 
-# ← Yeh line HF OpenEnv validator ke liye sabse zaroori hai
-main = app
+import uvicorn
 
-if __name__ == "__main__":
-    import uvicorn
+def main():
     uvicorn.run(
-        app,                    # yahan app pass kar rahe hain
+        app,
         host="0.0.0.0",
         port=7860
     )
+
+if __name__ == "__main__":
+    main()
