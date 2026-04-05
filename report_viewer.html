@@ -72,6 +72,7 @@ button.orn:hover { background: #9c4221; }
 .pbar { height: 6px; background: #e2e8f0; border-radius: 3px; margin-top: 12px; }
 .pfill { height: 100%; background: #1F4E79; border-radius: 3px; transition: width 0.4s; }
 .empty { text-align: center; padding: 60px 20px; color: #a0aec0; }
+.err-box { background: #fff5f5; border-left: 4px solid #c53030; padding: 14px 16px; border-radius: 0 8px 8px 0; font-size: 14px; color: #c53030; margin-top: 12px; }
 @media(max-width:700px){ .grid2{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -120,6 +121,7 @@ button.orn:hover { background: #9c4221; }
         <button class="sec" onclick="loadLast()">Load Last Score</button>
       </div>
       <div id="loading"><span class="spin"></span> Running analysis...</div>
+      <div id="errorBox" class="err-box" style="display:none"></div>
     </div>
 
     <div id="singleContent" style="display:none">
@@ -213,7 +215,7 @@ button.orn:hover { background: #9c4221; }
 
 </div>
 <script>
-const BASE = () => document.getElementById('apiUrl').value.trim();
+const BASE = () => document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
 
 // Auto-detect API URL
 (function(){
@@ -222,6 +224,7 @@ const BASE = () => document.getElementById('apiUrl').value.trim();
   const apiUrl = isLocal ? 'http://localhost:8000' : host;
   document.getElementById('apiUrl').value = apiUrl;
 })();
+
 let mainCh=null, pieCh=null, radarCh=null, stackCh=null;
 let allResults=[];
 
@@ -247,6 +250,16 @@ const RULES={
   hallucination_penalty:{label:'Hallucination Penalty',max:0},
 };
 
+function showErr(msg){
+  const el=document.getElementById('errorBox');
+  el.style.display='block';
+  el.textContent='Error: '+msg;
+}
+
+function hideErr(){
+  document.getElementById('errorBox').style.display='none';
+}
+
 function showTab(t){
   document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['single','all'][i]===t));
   document.getElementById('tab-single').style.display=t==='single'?'block':'none';
@@ -255,8 +268,15 @@ function showTab(t){
 
 async function checkHealth(){
   const el=document.getElementById('healthStatus');
-  try{const r=await fetch(`${BASE()}/`);const d=await r.json();el.textContent='✅ Connected — '+(d.predefined_tasks||0)+' tasks';el.style.color='#276749';}
-  catch(e){el.textContent='❌ Not connected';el.style.color='#c53030';}
+  try{
+    const r=await fetch(`${BASE()}/`);
+    const d=await r.json();
+    el.textContent='✅ Connected — '+(d.predefined_tasks||0)+' tasks';
+    el.style.color='#276749';
+  } catch(e){
+    el.textContent='❌ Not connected';
+    el.style.color='#c53030';
+  }
 }
 
 const gc=s=>s>=0.85?'#276749':s>=0.70?'#2E75B6':s>=0.50?'#c05621':'#c53030';
@@ -265,8 +285,13 @@ const fmt=n=>typeof n==='number'?n.toLocaleString():n;
 const pct=n=>(n>0?'+':'')+n+'%';
 
 function renderBars(detail, id){
+  if(!detail || typeof detail !== 'object'){
+    document.getElementById(id).innerHTML='<p style="color:#718096;padding:12px">No breakdown available.</p>';
+    return;
+  }
   let html='';
   Object.entries(detail).filter(([k])=>k!=='rule_total').forEach(([k,v])=>{
+    if(typeof v !== 'number') return;
     const info=RULES[k]||{label:k,max:0.20};
     const fill=info.max>0?Math.min(100,(Math.abs(v)/info.max)*100):0;
     const color=v<0?'#c53030':gc(info.max>0?v/info.max:0.5);
@@ -286,20 +311,33 @@ function renderBars(detail, id){
 }
 
 function renderVariance(obs){
+  if(!obs || !obs.budget){
+    document.getElementById('varianceBody').innerHTML='<tr><td colspan="6" style="color:#718096;text-align:center">No variance data</td></tr>';
+    return;
+  }
   let html='';
   Object.keys(obs.budget).forEach(m=>{
-    const vp=obs.variance_pct[m], va=obs.variances[m];
+    const vp=(obs.variance_pct||{})[m]||0;
+    const va=(obs.variances||{})[m]||0;
     const red=Math.abs(vp)>10;
     const badge=vp>5?'<span class="badge bg">Favorable</span>':vp<-5?'<span class="badge br">Unfavorable</span>':'<span class="badge bo">Watch</span>';
-    html+=`<tr><td><strong>${m.replace(/_/g,' ')}</strong></td><td>₹${fmt(obs.budget[m])}</td><td>₹${fmt(obs.actual[m])}</td>
+    html+=`<tr>
+      <td><strong>${m.replace(/_/g,' ')}</strong></td>
+      <td>₹${fmt(obs.budget[m])}</td>
+      <td>₹${fmt(obs.actual[m])}</td>
       <td class="${va>=0?'pos':'neg'}">₹${fmt(va)}</td>
-      <td class="${red?'wrn':vp>=0?'pos':'neg'}">${pct(vp)}</td><td>${badge}</td></tr>`;
+      <td class="${red?'wrn':vp>=0?'pos':'neg'}">${pct(vp)}</td>
+      <td>${badge}</td>
+    </tr>`;
   });
   document.getElementById('varianceBody').innerHTML=html;
 }
 
 function renderFeedback(fb){
-  if(!fb||fb.includes('not available')){document.getElementById('fbCard').style.display='none';return;}
+  if(!fb||fb.includes('not available')||fb.includes('unavailable')){
+    document.getElementById('fbCard').style.display='none';
+    return;
+  }
   document.getElementById('fbCard').style.display='block';
   let html='';
   fb.split('|').forEach(p=>{
@@ -308,23 +346,21 @@ function renderFeedback(fb){
     else if(t.includes('Weakness:'))html+=`<p style="margin-top:8px"><span style="color:#c53030;font-weight:600">⚠️ ${t}</span></p>`;
     else if(t)html+=`<p>${t}</p>`;
   });
-  document.getElementById('fbBox').innerHTML=html;
+  document.getElementById('fbBox').innerHTML=html||fb;
 }
 
 function buildSmartDraft(obs, taskId){
-  const vp = obs.variance_pct;
-  const va = obs.variances;
-  const sector = obs.sector;
-  const fmt_type = obs.requested_format;
+  const vp = obs.variance_pct || {};
+  const va = obs.variances || {};
+  const sector = obs.sector || 'General';
+  const fmt_type = obs.requested_format || 'one-pager';
   const metrics = Object.keys(vp);
 
-  // Classify each metric
   const favorable = metrics.filter(m => vp[m] > 0);
   const unfavorable = metrics.filter(m => vp[m] < 0);
   const redFlags = metrics.filter(m => Math.abs(vp[m]) > 10);
   const hasOffsetTrap = favorable.length > 0 && unfavorable.length > 0;
 
-  // Sector-specific context
   const SECTOR_CONTEXT = {
     'Retail FMCG': {
       threshold: '10%', norm: '±5-8% normal for seasonal quarters',
@@ -343,7 +379,7 @@ function buildSmartDraft(obs, taskId){
     'Pharma Manufacturing': {
       threshold: '5%', norm: '<3% COGS variance expected — strict regulatory controls',
       rev_driver: 'regulatory hold on product release and supply chain disruption',
-      cogs_driver: 'API (Active Pharmaceutical Ingredient) price spike and batch yield loss',
+      cogs_driver: 'API price spike and batch yield loss',
       margin_driver: 'raw material cost inflation and batch rejection write-offs',
       red_action: 'immediate escalation — batch failure or API supplier issue investigation required'
     },
@@ -362,31 +398,27 @@ function buildSmartDraft(obs, taskId){
     margin_driver: 'cost-revenue mix shift', red_action: 'investigate root causes with operations team'
   };
 
-  // Build detailed metric lines
   const metricLines = metrics.map(m => {
-    const pctVal = vp[m], absVal = va[m];
+    const pctVal = vp[m], absVal = va[m]||0;
     const dir = pctVal > 0 ? 'favorable' : 'unfavorable';
     const breach = Math.abs(pctVal) > 10 ? ` — EXCEEDS ${ctx.threshold} red-flag threshold` : '';
     const mName = m.replace(/_/g, ' ');
     let driver = '';
     if(m.toLowerCase().includes('revenue')) driver = ` driven by ${ctx.rev_driver}`;
-    else if(m.toLowerCase().includes('cogs') || m.toLowerCase().includes('material') || m.toLowerCase().includes('cost')) driver = ` caused by ${ctx.cogs_driver}`;
+    else if(m.toLowerCase().includes('cogs')||m.toLowerCase().includes('cost')) driver = ` caused by ${ctx.cogs_driver}`;
     else if(m.toLowerCase().includes('margin')) driver = ` due to ${ctx.margin_driver}`;
-    else if(m.toLowerCase().includes('opex') || m.toLowerCase().includes('expense')) driver = ` attributed to headcount and operational scaling`;
+    else driver = ` attributed to operational factors`;
     return `  • ${mName}: ${pctVal > 0 ? '+' : ''}${pctVal}% ${dir} (₹${Math.abs(absVal).toLocaleString()})${driver}${breach}`;
   }).join('\n');
 
-  // Trap detection paragraph
   const trapPara = hasOffsetTrap
-    ? `\nOFFSETTING VARIANCE ALERT: Despite ${favorable.map(m=>m.replace(/_/g,' ')).join(', ')} showing favorable variance, ${unfavorable.map(m=>m.replace(/_/g,' ')).join(', ')} underperformed. The net position may appear acceptable but masks underlying ${unfavorable.length > 0 ? 'revenue weakness' : 'cost pressure'} that requires management attention.`
+    ? `\nOFFSETTING VARIANCE ALERT: Despite ${favorable.map(m=>m.replace(/_/g,' ')).join(', ')} showing favorable variance, ${unfavorable.map(m=>m.replace(/_/g,' ')).join(', ')} underperformed. Net position masks underlying weakness.`
     : '';
 
-  // Red flag paragraph
   const redPara = redFlags.length > 0
-    ? `\nRED FLAG: ${redFlags.map(m => `${m.replace(/_/g,' ')} at ${vp[m] > 0 ? '+' : ''}${vp[m]}%`).join(', ')} exceed the ${sector} red-flag threshold of ${ctx.threshold}. ${ctx.red_action}.`
+    ? `\nRED FLAG: ${redFlags.map(m => `${m.replace(/_/g,' ')} at ${vp[m]>0?'+':''}${vp[m]}%`).join(', ')} exceed ${sector} red-flag threshold of ${ctx.threshold}. ${ctx.red_action}.`
     : `\nAll variances within ${sector} acceptable range per ${ctx.norm}.`;
 
-  // Format-specific header
   const headers = {
     'one-pager': `ONE-PAGER — ${sector} Budget Variance Analysis`,
     'board-slide': `BOARD SLIDE — ${sector} Quarterly Variance Summary`,
@@ -394,7 +426,7 @@ function buildSmartDraft(obs, taskId){
     'memo': `INTERNAL MEMO — ${sector} Detailed Variance Analysis`
   };
 
-  const draft = `${headers[fmt_type] || fmt_type.toUpperCase() + ' — ' + sector}
+  return `${headers[fmt_type]||fmt_type.toUpperCase()+' — '+sector}
 Sector Norm: ${ctx.norm}
 
 VARIANCE SUMMARY:
@@ -409,20 +441,21 @@ ${metrics.slice(0,2).map(m => {
   }).join('\n')}
 
 RECOMMENDATION:
-  1. ${redFlags.length > 0 ? ctx.red_action.charAt(0).toUpperCase() + ctx.red_action.slice(1) : 'Continue monitoring — variances within acceptable range'}
+  1. ${redFlags.length > 0 ? ctx.red_action.charAt(0).toUpperCase()+ctx.red_action.slice(1) : 'Continue monitoring — variances within acceptable range'}
   2. Review budget assumptions for next quarter based on ${ctx.rev_driver}
   3. ${hasOffsetTrap ? 'Do not rely on net position — address each variance driver independently' : 'Update sector benchmark assumptions for forward planning'}
 
 EVIDENCE: ${metrics.length} metrics analyzed | ${redFlags.length} red-flag breaches | Sector: ${sector} | Format: ${fmt_type}`;
-
-  return draft;
 }
 
 async function runAnalysisForTask(taskId){
-  const rr=await fetch(`${BASE()}/reset?task_id=${taskId}`);
-  const obs=await rr.json();
+  const rr = await fetch(`${BASE()}/reset?task_id=${taskId}`, {method:'POST'});
+  if(!rr.ok) throw new Error(`Reset failed: ${rr.status} ${await rr.text()}`);
+  const obs = await rr.json();
+
   await fetch(`${BASE()}/step`,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:{action_type:'analyze',explanation_text:`Analyzing ${obs.sector} sector variance. Reviewing ${Object.keys(obs.variance_pct).length} metrics against budget.`}})});
+    body:JSON.stringify({action:{action_type:'analyze',explanation_text:`Analyzing ${obs.sector} sector variance. Reviewing ${Object.keys(obs.variance_pct||{}).length} metrics against budget.`}})});
+
   await fetch(`${BASE()}/step`,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:{action_type:'query_norms',norm_query:{sector:obs.sector,metric:'all',question:`What are the red-flag thresholds and common drivers for ${obs.sector}?`}}})});
 
@@ -430,70 +463,103 @@ async function runAnalysisForTask(taskId){
 
   await fetch(`${BASE()}/step`,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({action:{action_type:'submit',explanation_text:draft}})});
-  const gr=await fetch(`${BASE()}/grader?detail=true`);
-  const grade=await gr.json();
-  return{taskId,obs,draft,grade};
+
+  const gr = await fetch(`${BASE()}/grader?detail=true`);
+  if(!gr.ok) throw new Error(`Grader failed: ${gr.status}`);
+  const grade = await gr.json();
+
+  if(grade.error) throw new Error(grade.error);
+
+  return {taskId, obs, draft, grade};
 }
 
 async function runSingle(){
-  const task=document.getElementById('taskSelect').value;
+  const task = document.getElementById('taskSelect').value;
   document.getElementById('loading').style.display='block';
   document.getElementById('singleContent').style.display='none';
   document.getElementById('singleEmpty').style.display='none';
+  hideErr();
+
   try{
-    const{obs,draft,grade}=await runAnalysisForTask(task);
-    document.getElementById('finalScore').textContent=grade.final_score.toFixed(3);
-    document.getElementById('finalScore').style.color=gc(grade.final_score);
-    document.getElementById('scoreGrade').textContent=gg(grade.final_score);
-    document.getElementById('ruleVal').textContent=grade.rule_score?.toFixed(3)??'—';
-    document.getElementById('ruleVal').style.color=gc(grade.rule_score??0);
-    const llm=grade.llm_score;
-    document.getElementById('llmVal').textContent=llm!=null?llm.toFixed(3):'N/A';
-    if(llm!=null)document.getElementById('llmVal').style.color=gc(llm);
-    renderBars(grade.rule_detail,'breakdown');
-    renderBars(grade.rule_detail,'ruleDetail');
+    const {obs, draft, grade} = await runAnalysisForTask(task);
+
+    const fs = grade.final_score ?? 0;
+    document.getElementById('finalScore').textContent = fs.toFixed(3);
+    document.getElementById('finalScore').style.color = gc(fs);
+    document.getElementById('scoreGrade').textContent = gg(fs);
+
+    const rs = grade.rule_score ?? 0;
+    document.getElementById('ruleVal').textContent = rs.toFixed(3);
+    document.getElementById('ruleVal').style.color = gc(rs);
+
+    const llm = grade.llm_score;
+    document.getElementById('llmVal').textContent = llm!=null ? llm.toFixed(3) : 'N/A';
+    if(llm!=null) document.getElementById('llmVal').style.color = gc(llm);
+
+    renderBars(grade.rule_detail, 'breakdown');
+    renderBars(grade.rule_detail, 'ruleDetail');
     renderVariance(obs);
-    document.getElementById('reportText').textContent=draft;
-    renderFeedback(grade.llm_feedback);
+    document.getElementById('reportText').textContent = draft;
+    renderFeedback(grade.llm_feedback || '');
     document.getElementById('singleContent').style.display='block';
-  }catch(e){alert('Error: '+e.message);}
-  finally{document.getElementById('loading').style.display='none';}
+
+  } catch(e){
+    showErr(e.message);
+    document.getElementById('singleEmpty').style.display='block';
+  } finally {
+    document.getElementById('loading').style.display='none';
+  }
 }
 
 async function loadLast(){
+  hideErr();
   try{
-    const gr=await fetch(`${BASE()}/grader?detail=true`);
-    const grade=await gr.json();
-    if(grade.error){alert(grade.error);return;}
-    document.getElementById('finalScore').textContent=grade.final_score.toFixed(3);
-    document.getElementById('finalScore').style.color=gc(grade.final_score);
-    document.getElementById('scoreGrade').textContent=gg(grade.final_score);
-    document.getElementById('ruleVal').textContent=grade.rule_score?.toFixed(3)??'—';
-    const llm=grade.llm_score;
-    document.getElementById('llmVal').textContent=llm!=null?llm.toFixed(3):'N/A';
-    renderBars(grade.rule_detail,'breakdown');
-    renderBars(grade.rule_detail,'ruleDetail');
-    renderFeedback(grade.llm_feedback);
-    document.getElementById('reportText').textContent='Run full analysis to see the generated report.';
+    const gr = await fetch(`${BASE()}/grader?detail=true`);
+    const grade = await gr.json();
+    if(grade.error){showErr(grade.error);return;}
+
+    const fs = grade.final_score ?? 0;
+    document.getElementById('finalScore').textContent = fs.toFixed(3);
+    document.getElementById('finalScore').style.color = gc(fs);
+    document.getElementById('scoreGrade').textContent = gg(fs);
+
+    const rs = grade.rule_score ?? 0;
+    document.getElementById('ruleVal').textContent = rs.toFixed(3);
+
+    const llm = grade.llm_score;
+    document.getElementById('llmVal').textContent = llm!=null ? llm.toFixed(3) : 'N/A';
+
+    renderBars(grade.rule_detail, 'breakdown');
+    renderBars(grade.rule_detail, 'ruleDetail');
+    renderFeedback(grade.llm_feedback || '');
+    document.getElementById('reportText').textContent = 'Run full analysis to see the generated report.';
     document.getElementById('singleContent').style.display='block';
     document.getElementById('singleEmpty').style.display='none';
-  }catch(e){alert('Error: '+e.message);}
+  } catch(e){
+    showErr(e.message);
+  }
 }
 
 async function runAll(ids){
-  const taskIds=ids||TASKS.map(t=>t.id);
+  const taskIds = ids || TASKS.map(t=>t.id);
   document.getElementById('allLoading').style.display='block';
   document.getElementById('allContent').style.display='none';
   document.getElementById('allEmpty').style.display='none';
   allResults=[];
+
   for(let i=0;i<taskIds.length;i++){
     const id=taskIds[i];
     const meta=TASKS.find(t=>t.id===id)||{id,name:id,diff:'custom',sector:'?'};
     document.getElementById('allTxt').textContent=`Running: ${meta.name} (${i+1}/${taskIds.length})`;
     document.getElementById('pfill').style.width=((i/taskIds.length)*100)+'%';
-    try{const r=await runAnalysisForTask(id);allResults.push({...r,meta});}
-    catch(e){allResults.push({taskId:id,meta,grade:{final_score:0,rule_score:0,llm_score:null,rule_detail:{}},obs:null,draft:''});}
+    try{
+      const r=await runAnalysisForTask(id);
+      allResults.push({...r,meta});
+    } catch(e){
+      allResults.push({taskId:id,meta,grade:{final_score:0,rule_score:0,llm_score:null,rule_detail:{}},obs:null,draft:''});
+    }
   }
+
   document.getElementById('pfill').style.width='100%';
   document.getElementById('allLoading').style.display='none';
   document.getElementById('allProg').textContent=`✅ ${taskIds.length} tasks done`;
@@ -510,7 +576,7 @@ function renderAllResults(){
 
 function renderTaskCards(){
   document.getElementById('tasksGrid').innerHTML=allResults.map(r=>{
-    const s=r.grade.final_score,diff=r.meta.diff||'custom';
+    const s=r.grade.final_score||0, diff=r.meta.diff||'custom';
     const diffColor=diff==='easy'?'background:#c6f6d5;color:#276749':diff==='medium'?'background:#feebc8;color:#c05621':'background:#fed7d7;color:#c53030';
     return`<div class="task-card">
       <span class="diff-badge" style="${diffColor}">${diff.toUpperCase()}</span>
@@ -518,21 +584,21 @@ function renderTaskCards(){
       <div style="font-size:12px;color:#718096;margin-bottom:12px">${r.meta.sector||''}</div>
       <div style="font-size:32px;font-weight:700;color:${gc(s)}">${s.toFixed(3)}</div>
       <div style="font-size:13px;color:${gc(s)};margin-top:4px">${gg(s)}</div>
-      <div style="font-size:12px;color:#718096;margin-top:8px">Rule: ${r.grade.rule_score?.toFixed(3)??'—'} | LLM: ${r.grade.llm_score!=null?r.grade.llm_score.toFixed(3):'N/A'}</div>
+      <div style="font-size:12px;color:#718096;margin-top:8px">Rule: ${(r.grade.rule_score??0).toFixed(3)} | LLM: ${r.grade.llm_score!=null?r.grade.llm_score.toFixed(3):'N/A'}</div>
     </div>`;
   }).join('');
 }
 
 function renderSumTable(){
   document.getElementById('sumBody').innerHTML=allResults.map(r=>{
-    const d=r.grade.rule_detail||{},s=r.grade.final_score;
+    const d=r.grade.rule_detail||{}, s=r.grade.final_score||0;
     const diffCls=r.meta.diff==='easy'?'bg':r.meta.diff==='medium'?'bo':'br';
     return`<tr>
       <td><strong>${r.meta.name||r.taskId}</strong></td>
       <td><span class="badge ${diffCls}">${r.meta.diff||'—'}</span></td>
       <td>${r.meta.sector||'—'}</td>
       <td style="color:${gc(s)};font-weight:700">${s.toFixed(3)}</td>
-      <td>${r.grade.rule_score?.toFixed(3)??'—'}</td>
+      <td>${(r.grade.rule_score??0).toFixed(3)}</td>
       <td>${r.grade.llm_score!=null?r.grade.llm_score.toFixed(3):'N/A'}</td>
       <td>${(d.numerical_accuracy??0).toFixed(2)}</td>
       <td>${(d.driver_identification??0).toFixed(2)}</td>
@@ -561,9 +627,9 @@ function renderMain(type){
   mainCh=new Chart(ctx,{
     type:type==='line'?'line':'bar',
     data:{labels,datasets:[
-      {label:'Final Score',data:allResults.map(r=>r.grade.final_score),backgroundColor:'rgba(31,78,121,0.8)',borderColor:'#1F4E79',borderWidth:2,fill:type==='line',tension:0.4},
-      {label:'Rule Score',data:allResults.map(r=>r.grade.rule_score??0),backgroundColor:'rgba(46,117,182,0.6)',borderColor:'#2E75B6',borderWidth:2,fill:false,tension:0.4},
-      {label:'LLM Score',data:allResults.map(r=>r.grade.llm_score??0),backgroundColor:'rgba(39,103,73,0.5)',borderColor:'#276749',borderWidth:2,fill:false,tension:0.4},
+      {label:'Final Score',data:allResults.map(r=>r.grade.final_score||0),backgroundColor:'rgba(31,78,121,0.8)',borderColor:'#1F4E79',borderWidth:2,fill:type==='line',tension:0.4},
+      {label:'Rule Score',data:allResults.map(r=>r.grade.rule_score||0),backgroundColor:'rgba(46,117,182,0.6)',borderColor:'#2E75B6',borderWidth:2,fill:false,tension:0.4},
+      {label:'LLM Score',data:allResults.map(r=>r.grade.llm_score||0),backgroundColor:'rgba(39,103,73,0.5)',borderColor:'#276749',borderWidth:2,fill:false,tension:0.4},
     ]},
     options:{responsive:true,maintainAspectRatio:false,scales:{y:{min:0,max:1,ticks:{stepSize:0.1}}},
       plugins:{legend:{position:'top'},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${c.raw.toFixed(3)}`}}}}
@@ -573,7 +639,7 @@ function renderMain(type){
 function renderPie(){
   if(pieCh)pieCh.destroy();
   const labels=allResults.map(r=>r.meta.name||r.taskId);
-  const data=allResults.map(r=>r.grade.final_score);
+  const data=allResults.map(r=>r.grade.final_score||0);
   const colors=data.map(s=>gc(s));
   const ctx=document.getElementById('pieChart').getContext('2d');
   pieCh=new Chart(ctx,{type:'pie',data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2}]},
@@ -587,8 +653,8 @@ function renderRadar(){
   const ctx=document.getElementById('radarChart').getContext('2d');
   radarCh=new Chart(ctx,{type:'radar',
     data:{labels,datasets:[
-      {label:'Final Score',data:allResults.map(r=>r.grade.final_score),borderColor:'#1F4E79',backgroundColor:'rgba(31,78,121,0.2)'},
-      {label:'Rule Score',data:allResults.map(r=>r.grade.rule_score??0),borderColor:'#2E75B6',backgroundColor:'rgba(46,117,182,0.15)'},
+      {label:'Final Score',data:allResults.map(r=>r.grade.final_score||0),borderColor:'#1F4E79',backgroundColor:'rgba(31,78,121,0.2)'},
+      {label:'Rule Score',data:allResults.map(r=>r.grade.rule_score||0),borderColor:'#2E75B6',backgroundColor:'rgba(46,117,182,0.15)'},
     ]},
     options:{responsive:true,maintainAspectRatio:false,scales:{r:{min:0,max:1}},plugins:{legend:{position:'top'}}}
   });
@@ -603,7 +669,8 @@ function renderStack(){
   const ctx=document.getElementById('stackChart').getContext('2d');
   stackCh=new Chart(ctx,{type:'bar',
     data:{labels,datasets:criteria.map((c,i)=>({
-      label:criLbls[i],data:allResults.map(r=>r.grade.rule_detail?.[c]??0),
+      label:criLbls[i],
+      data:allResults.map(r=>(r.grade.rule_detail||{})[c]??0),
       backgroundColor:colors[i]+'CC',borderColor:colors[i],borderWidth:1}))},
     options:{responsive:true,maintainAspectRatio:false,
       scales:{x:{stacked:true},y:{stacked:true,min:0,max:1}},
