@@ -12,4 +12,5 @@ COPY . .
 
 EXPOSE 7860
 
+# Use the correct entrypoint that HF expects
 CMD ["python", "-m", "server.app"]
