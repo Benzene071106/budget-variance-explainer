@@ -12,5 +12,4 @@ COPY . .
 
 EXPOSE 7860
 
-# Yeh line important hai
-CMD ["python", "-m", "server.app"]
+CMD ["python", "server/app.py"]
