@@ -318,7 +318,8 @@ def run_inference(task_ids: list = None) -> Dict:
             )
 
         grade_detail = grader.grade(task_id, final_text, obs, return_detail=True)
-        final_score = grade_detail["final_score"]
+        raw_score = grade_detail["final_score"]
+        final_score = max(1e-6, min(1 - 1e-6, float(raw_score)))
 
         results[task_id] = {
             "score": final_score,
