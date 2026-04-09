@@ -10,12 +10,12 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
-
-_API_KEY = HF_TOKEN or os.getenv("OPENAI_API_KEY", "no-key")
+if HF_TOKEN is None:
+    raise ValueError("HF_TOKEN environment variable is required")
 
 client = OpenAI(
     base_url=API_BASE_URL,
-    api_key=_API_KEY
+    api_key=HF_TOKEN
 )
 
 
@@ -72,14 +72,13 @@ def _call_llm(messages: list, task_id: str) -> dict:
         raw = raw.replace("```json", "").replace("```", "").strip()
         return json.loads(raw)
     except Exception as e:
-        print(f"  LLM call failed: {e} — using fallback")
+        print(f"  LLM call failed: {e} — using fallback", flush=True)
         return None
 
 
 def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
     """Convert raw LLM dict to typed Action, with fallback per step"""
     if raw is None:
-        # Fallback sequence
         fallbacks = {
             1: Action(action_type="analyze", explanation_text="Analyzing variance data."),
             2: Action(action_type="calculate"),
@@ -95,7 +94,6 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
 
     action_type = raw.get("action_type", "analyze")
 
-
     calculations = None
     if raw.get("calculations"):
         calculations = []
@@ -103,7 +101,7 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
             try:
                 calculations.append(VarianceCalculation(**c))
             except Exception:
-                pass  
+                pass
 
     norm_query = None
     if raw.get("norm_query"):
@@ -112,15 +110,14 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
         except Exception:
             pass
 
-
     structured_output = None
     if raw.get("structured_output"):
         try:
             so = raw["structured_output"]
-         
+
             if isinstance(so.get("executive_summary"), list):
                 so["executive_summary"] = " ".join(so["executive_summary"])
-         
+
             raw_drivers = so.get("drivers", [])
             if not raw_drivers:
                 raw_drivers = [{
@@ -133,8 +130,6 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
             for d in raw_drivers:
                 try:
                     driver_obj = Driver(**d)
-                    
-                    # ✅ convert to JSON-safe dict
                     drivers.append({
                         "name": driver_obj.name,
                         "direction": driver_obj.direction,
@@ -144,7 +139,6 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
                 except Exception:
                     pass
 
-            # fallback if empty
             if not drivers:
                 drivers = [{
                     "name": "variance_driver",
@@ -163,10 +157,9 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
                 so["recommendation"] = "Review variance drivers and take corrective action."
             if "risk_flag" not in so:
                 so["risk_flag"] = False
-            structured_output = so 
+            structured_output = so
         except Exception as e:
-            print(f"  structured_output parse error: {e}")
-          
+            print(f"  structured_output parse error: {e}", flush=True)
             if not raw.get("explanation_text") and raw.get("structured_output"):
                 so = raw["structured_output"]
                 summary = so.get("executive_summary", "")
@@ -185,20 +178,17 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
             revision_instructions=raw.get("revision_instructions")
         )
     except Exception as e:
-        print(f"  Action build error: {e}")
+        print(f"  Action build error: {e}", flush=True)
         return Action(action_type="analyze", explanation_text="Fallback action.")
 
 
 def get_model_response(obs_dict: dict, task_id: str, history: list, step: int) -> Action:
     """Build messages and get next action from LLM"""
-
-   
     sector_norms_context = ""
     if step == 3:
         norms = SECTOR_NORMS.get(obs_dict.get("sector", ""), {})
         sector_norms_context = f"\nSECTOR NORMS FOR {obs_dict.get('sector')}:\n{json.dumps(norms, indent=2)}\n"
 
- 
     vp = obs_dict.get("variance_pct", {})
     va = obs_dict.get("variances", {})
     variance_lines = "\n".join([
@@ -253,53 +243,67 @@ def run_inference(task_ids: list = None) -> Dict:
         history = []
         step = 0
         cumulative_reward = 0.0
+        action = None
+        success = False
 
-       
-        print(json.dumps({
-            "event": "START",
-            "task_id": task_id,
-            "sector": obs.sector,
-            "requested_format": obs.requested_format,
-            "budget": obs.budget,
-            "actual": obs.actual,
-            "variance_pct": obs.variance_pct
-        }))
+        # ── [START] ──────────────────────────────────────────────────────────
+        print(
+            f"[START] task={task_id} env=BudgetVarianceEnv model={MODEL_NAME}",
+            flush=True
+        )
 
-        for _ in range(12):
-            step += 1
-            action, user_msg, assistant_msg = get_model_response(
-                obs.model_dump(), task_id, history, step
+        try:
+            for _ in range(12):
+                step += 1
+                action, user_msg, assistant_msg = get_model_response(
+                    obs.model_dump(), task_id, history, step
+                )
+
+                obs, reward, done, info = env.step(action)
+                cumulative_reward += reward.value
+
+                error_str = info.get("error", "null") or "null"
+
+                # ── [STEP] ────────────────────────────────────────────────────
+                print(
+                    f"[STEP] step={step} action={action.action_type} "
+                    f"reward={reward.value:.2f} done={str(done).lower()} "
+                    f"error={error_str}",
+                    flush=True
+                )
+
+                history.append({"role": "user", "content": user_msg})
+                history.append({"role": "assistant", "content": assistant_msg})
+
+                if done:
+                    success = True
+                    break
+
+        except Exception as e:
+            error_str = str(e).replace("\n", " ")
+            print(
+                f"[STEP] step={step + 1} action=error reward=0.00 "
+                f"done=false error={error_str}",
+                flush=True
+            )
+            success = False
+
+        finally:
+            # ── [END] ─────────────────────────────────────────────────────────
+            print(
+                f"[END] success={str(success).lower()} steps={step} "
+                f"rewards={round(cumulative_reward, 2):.2f}",
+                flush=True
             )
 
-            obs, reward, done, info = env.step(action)
-            cumulative_reward += reward.value
-
-            
-            print(json.dumps({
-                "event": "STEP",
-                "task_id": task_id,
-                "step": step,
-                "action_type": action.action_type,
-                "reward": reward.value,
-                "cumulative_reward": round(cumulative_reward, 3),
-                "done": done,
-                "hallucinations": info.get("hallucinations_so_far", 0)
-            }))
-
-            history.append({"role": "user", "content": user_msg})
-            history.append({"role": "assistant", "content": assistant_msg})
-
-            if done:
-                break
-
-        
+        # ── Grading (after [END], for internal results tracking) ─────────────
         final_text = ""
-        if action.structured_output:
+        if action and action.structured_output:
             try:
                 final_text = json.dumps(action.structured_output.model_dump(mode="json"), indent=2)
             except Exception:
                 final_text = action.structured_output.executive_summary or ""
-        if not final_text and action.explanation_text:
+        if not final_text and action and action.explanation_text:
             final_text = action.explanation_text
         if not final_text and obs.previous_drafts:
             final_text = " ".join(obs.previous_drafts)
@@ -323,26 +327,7 @@ def run_inference(task_ids: list = None) -> Dict:
             "grader_detail": grade_detail
         }
 
-       
-        print(json.dumps({
-            "event": "END",
-            "task_id": task_id,
-            "score": final_score,
-            "rule_score": grade_detail.get("rule_score"),
-            "llm_score": grade_detail.get("llm_score"),
-            "steps_taken": step,
-            "cumulative_reward": round(cumulative_reward, 3),
-            "grader_source": grade_detail.get("grader_source"),
-            "llm_feedback": grade_detail.get("llm_feedback", "")
-        }))
-
     summary = {tid: r["score"] for tid, r in results.items()}
-    print(json.dumps({
-        "event": "SUMMARY",
-        "scores": summary,
-        "average": round(sum(summary.values()) / len(summary), 3)
-    }))
-
     return summary
 
 
