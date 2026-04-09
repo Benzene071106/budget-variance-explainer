@@ -76,8 +76,11 @@ class VarianceGrader:
             llm_feedback = "LLM grader not available — rule-based only"
             source = "rule_based"
 
+        # Clamp to strictly (0, 1) — validator requires not 0.0 and not 1.0
+        final = max(0.01, min(0.99, final))
+
         detail = {
-            "final_score": min(1.0, final),
+            "final_score": final,
             "rule_score": rule_score,
             "rule_detail": rule_detail,
             "llm_score": llm_score if _LLM_AVAILABLE and os.getenv("OPENAI_API_KEY") else None,
@@ -155,7 +158,7 @@ class VarianceGrader:
         score += 0.05 * trap_score
         detail["trap_detection"] = round(0.05 * trap_score, 3)
 
-        final = round(max(0.0, min(1.0, score)), 3)
+        final = round(max(0.01, min(0.99, score)), 3)
         detail["rule_total"] = final
         return final, detail
 
