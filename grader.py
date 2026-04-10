@@ -90,7 +90,7 @@ class VarianceGrader:
 
         if return_detail:
             return detail
-        return round(min(1.0, final), 3)
+        return round(final, 3)
 
     def _flatten_draft(self, draft: str) -> str:
         """Convert structured JSON output to flat text for keyword matching"""
@@ -174,7 +174,7 @@ class VarianceGrader:
                     variants.add(str(int(v)))
             if any(v in draft for v in variants):
                 hits += 1
-        return hits / max(len(obs.variance_pct), 1)
+        return max(0.01, min(0.99, hits / max(len(obs.variance_pct), 1)))
 
     def _check_drivers(self, task_id: str, draft_lower: str, obs=None) -> float:
         keywords = _EXPECTED_DRIVERS.get(task_id, [])
@@ -197,10 +197,10 @@ class VarianceGrader:
            
             all_keywords = universal
             hits = sum(1 for kw in all_keywords if kw in draft_lower)
-            return min(1.0, hits / 4)  
+            return min(0.99, hits / 4)  
 
         hits = sum(1 for kw in keywords if kw in draft_lower)
-        return min(1.0, hits / max(len(keywords) * 0.5, 1))
+        return min(0.99, hits / max(len(keywords) * 0.5, 1))
 
     def _check_sector_norm(self, sector: str, draft: str, obs=None) -> float:
         thresh = _SECTOR_THRESHOLDS.get(sector, {})
@@ -235,6 +235,10 @@ class VarianceGrader:
             if any(w in draft_lower for w in known_kws):
                 score += 0.5
         else:
+        ...
+        # no return here
+    
+        return min(0.99, score)   # ✅ ALWAYS return
          
             universal_sector_words = [
                 "commodity", "material", "labor", "workforce", "operational",
@@ -258,18 +262,19 @@ class VarianceGrader:
                 red_flags = norms.get("red_flags", [])
                 flag_words = [f.split()[0].lower() for f in red_flags]
                 if any(w in draft_lower for w in flag_words):
-                    score = min(1.0, score + 0.25)
+                    score = min(0.99, score + 0.25)
             except Exception:
                 pass
 
-        return min(1.0, score)
+            return min(0.99, score)
+
 
     def _check_format(self, fmt: str, draft_lower: str) -> float:
         keywords = _FORMAT_KEYWORDS.get(fmt, [])
         if not keywords:
             return 0.5
         hits = sum(1 for kw in keywords if kw in draft_lower)
-        return hits / max(len(keywords), 1)
+        return max(0.01, min(0.99, hits / max(len(obs.variance_pct), 1)))
 
     def _check_evidence(self, draft_lower: str) -> float:
         causal_words = ["because", "due to", "caused by", "result of", "driven by", "attributed to"]
@@ -282,7 +287,8 @@ class VarianceGrader:
   
         if re.search(r"\d+\.?\d*\s*%", draft_lower):
             score += 0.2
-        return min(1.0, score)
+        return min(0.99, score)
+
 
     def _check_seasonality_reasoning(self, draft_lower: str, obs: Observation) -> float:
         """
@@ -325,7 +331,7 @@ class VarianceGrader:
         if any(w in draft_lower for w in structural_words):
             score += 0.2
 
-        return min(1.0, score)
+        return min(0.99, score)
 
     def _check_offsetting_trap(self, draft_lower: str, obs: Observation) -> float:
         """
@@ -363,9 +369,9 @@ class VarianceGrader:
                 score += 0.4
         else:
            
-            score = 1.0
+            score = 0.99
 
-        return min(1.0, score)
+        return min(0.99, score)
 
     def _hallucination_penalty(self, draft: str, obs: Observation) -> float:
         """Penalise numbers in the draft that do not match the observation"""
@@ -425,7 +431,7 @@ Task: {task_id}
 {draft}
 
 == GRADING RUBRIC ==
-Score from 0.0 to 1.0 on ALL of these:
+Score from 0.0 to 0.99 on ALL of these:
 
 1. NUMERICAL ACCURACY (0–1): Are all percentages and absolutes correct? No hallucinated numbers?
 2. DRIVER QUALITY (0–1): Are the root causes correct and specific for this sector & task?
@@ -465,7 +471,7 @@ weighted_score = (numerical_accuracy*0.20 + driver_quality*0.25 + sector_norm_us
                 f"Strength: {data.get('key_strength', '')} | "
                 f"Weakness: {data.get('key_weakness', '')}"
             )
-            return round(min(1.0, max(0.0, score)), 3), feedback
+            return round(min(0.99, max(0.01, score)), 3), feedback
         except Exception as e:
             return 0.5, f"LLM grader error: {e}"
 
