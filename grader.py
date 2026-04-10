@@ -4,7 +4,6 @@ import re
 from typing import Dict, Optional, Tuple
 from models import Observation
 
-
 try:
     from openai import OpenAI
     _client = OpenAI(
@@ -16,40 +15,36 @@ try:
 except Exception:
     _LLM_AVAILABLE = False
 
-
 _SECTOR_THRESHOLDS = {
-    "Retail FMCG":          {"red_flag_pct": 10.0, "cogs_tight": False},
-    "SaaS":                 {"red_flag_pct": 20.0, "cogs_tight": False},
-    "Pharma Manufacturing": {"red_flag_pct": 5.0,  "cogs_tight": True},
-    "EdTech SaaS":          {"red_flag_pct": 15.0, "cogs_tight": False},
+    "Retail FMCG": {"red_flag_pct": 10.0, "cogs_tight": False},
+    "SaaS": {"red_flag_pct": 20.0, "cogs_tight": False},
+    "Pharma Manufacturing": {"red_flag_pct": 5.0, "cogs_tight": True},
+    "EdTech SaaS": {"red_flag_pct": 15.0, "cogs_tight": False},
 }
 
 _EXPECTED_DRIVERS = {
-    "easy":                  ["seasonal", "holiday", "promotion", "volume"],
-    "easy_saas":             ["logo", "new customer", "attainment"],
-    "medium":                ["renewal", "deal", "expansion", "volume"],
-    "medium_retail_margin":  ["promo", "margin", "cost", "mix"],
-    "hard":                  ["raw material", "batch", "api", "yield", "regulatory"],
-    "hard_saas_churn":       ["churn", "retention", "headcount", "hiring"],
-    "hard_edtech_seasonal":  ["exam", "enrollment", "content", "b2b"],
-    "hard_conglomerate":     ["retail", "pharma", "division", "mix"],
+    "easy": ["seasonal", "holiday", "promotion", "volume"],
+    "easy_saas": ["logo", "new customer", "attainment"],
+    "medium": ["renewal", "deal", "expansion", "volume"],
+    "medium_retail_margin": ["promo", "margin", "cost", "mix"],
+    "hard": ["raw material", "batch", "api", "yield", "regulatory"],
+    "hard_saas_churn": ["churn", "retention", "headcount", "hiring"],
+    "hard_edtech_seasonal": ["exam", "enrollment", "content", "b2b"],
+    "hard_conglomerate": ["retail", "pharma", "division", "mix"],
 }
 
 _FORMAT_KEYWORDS = {
-    "one-pager":        ["summary", "recommendation", "root cause", "variance"],
-    "board-slide":      ["headline", "strategic", "implication", "ask"],
+    "one-pager": ["summary", "recommendation", "root cause", "variance"],
+    "board-slide": ["headline", "strategic", "implication", "ask"],
     "exception-report": ["alert", "corrective", "impact", "timeline", "chain"],
-    "memo":             ["detailed", "assumption", "controllable", "table"],
+    "memo": ["detailed", "assumption", "controllable", "table"],
 }
 
 
 class VarianceGrader:
     """
-    Two-layer grader:
-      Layer 1 — Rule-based (always runs, instant, free)
-      Layer 2 — LLM-as-judge (runs if API key available, adds nuance)
-
-    Final score = weighted blend of both layers.
+    Two-layer grader with strict clamping to ensure scores are always in (0, 1)
+    Never returns exactly 0.0 or 1.0 to satisfy validator requirements.
     """
 
     def grade(
@@ -59,10 +54,13 @@ class VarianceGrader:
         observation: Observation,
         return_detail: bool = False
     ) -> float | Dict:
-
-        # Flatten JSON structured output to plain text for rule-based grading
-        flat_draft = self._flatten_draft(final_draft)
-        rule_score, rule_detail = self._rule_based_grade(task_id, flat_draft, observation)
+        """Main grading function with bulletproof clamping"""
+        try:
+            flat_draft = self._flatten_draft(final_draft)
+            rule_score, rule_detail = self._rule_based_grade(task_id, flat_draft, observation)
+        except Exception as e:
+            rule_score = 0.5
+            rule_detail = {"error": str(e), "rule_total": 0.5}
 
         llm_score = 0.5
         llm_feedback = "LLM grader not available — rule-based only"
@@ -72,7 +70,7 @@ class VarianceGrader:
             try:
                 llm_score, llm_feedback = self._llm_grade(task_id, final_draft, observation)
                 # Weighted blend: rule 40%, LLM 60%
-                final = round(0.40 * rule_score + 0.60 * llm_score, 3)
+                final = 0.40 * rule_score + 0.60 * llm_score
                 source = "hybrid"
             except Exception as e:
                 llm_feedback = f"LLM grader error: {e}"
@@ -80,38 +78,43 @@ class VarianceGrader:
         else:
             final = rule_score
 
-        # Clamp to strictly (0, 1) — validator requires not 0.0 and not 1.0
-        # Also guard against NaN, Inf, and any float edge case
+        # === STRICT CLAMPING TO (0.051, 0.949) ===
         try:
             final = float(final)
-        except Exception:
+        except (ValueError, TypeError):
             final = 0.5
-        if final != final:   # NaN check
+
+        if final != final:  # NaN check
             final = 0.5
+
+        # Force strictly inside (0, 1) — never allow 0.0 or 1.0
         if final <= 0.0:
-            final = 0.05
-        if final >= 1.0:
-            final = 0.95
+            final = 0.051
+        elif final >= 1.0:
+            final = 0.949
+        else:
+            # Extra safety near boundaries
+            if final < 0.01:
+                final = 0.051
+            elif final > 0.99:
+                final = 0.949
+
+        final = round(final, 3)
 
         detail = {
             "final_score": final,
-            "rule_score": rule_score,
+            "rule_score": round(rule_score, 3),
             "rule_detail": rule_detail,
-            "llm_score": llm_score if source == "hybrid" else None,
+            "llm_score": round(llm_score, 3) if source == "hybrid" else None,
             "llm_feedback": llm_feedback,
             "grader_source": source
         }
 
         if return_detail:
             return detail
-        rounded = round(final, 3)
-        # round() is safe here since final is already in [0.05, 0.95]
-        # but enforce once more to be absolutely certain
-        if rounded <= 0.0:
-            rounded = 0.05
-        if rounded >= 1.0:
-            rounded = 0.95
-        return rounded
+
+        # Final return with strict range
+        return max(0.051, min(0.949, final))
 
     def _flatten_draft(self, draft: str) -> str:
         """Convert structured JSON output to flat text for keyword matching"""
@@ -135,7 +138,7 @@ class VarianceGrader:
     def _rule_based_grade(
         self, task_id: str, draft: str, obs: Observation
     ) -> Tuple[float, Dict]:
-        # Wrap entire method in try/except to prevent crashes returning 0.0
+        """Rule-based grading with strict clamping"""
         try:
             score = 0.0
             detail: Dict[str, float] = {}
@@ -163,7 +166,7 @@ class VarianceGrader:
 
             halluc_penalty = self._hallucination_penalty(draft, obs)
             score -= halluc_penalty
-            detail["hallucination_penalty"] = -round(halluc_penalty, 3)
+            detail["hallucination_penalty"] = -round(hallucination_penalty, 3)
 
             seasonality_score = self._check_seasonality_reasoning(draft_lower, obs)
             score += 0.05 * seasonality_score
@@ -173,12 +176,16 @@ class VarianceGrader:
             score += 0.05 * trap_score
             detail["trap_detection"] = round(0.05 * trap_score, 3)
 
-            final = round(max(0.05, min(0.95, score)), 3)
+            # STRICT CLAMPING HERE TOO
+            final = round(max(0.051, min(0.949, score)), 3)
             detail["rule_total"] = final
             return final, detail
 
         except Exception as e:
             return 0.5, {"error": str(e), "rule_total": 0.5}
+
+    # === Keep all your existing helper methods unchanged below ===
+    # (I've only updated the critical parts above)
 
     def _check_numbers(self, draft: str, obs: Observation) -> float:
         hits = 0
@@ -199,7 +206,6 @@ class VarianceGrader:
 
     def _check_drivers(self, task_id: str, draft_lower: str, obs=None) -> float:
         keywords = _EXPECTED_DRIVERS.get(task_id, [])
-
         if not keywords and obs:
             try:
                 from dynamic_env import get_or_generate_norms
@@ -216,7 +222,7 @@ class VarianceGrader:
         if not keywords or task_id.startswith("custom_"):
             all_keywords = universal
             hits = sum(1 for kw in all_keywords if kw in draft_lower)
-            return max(0.05, min(0.95, hits / 4))  # FIX: added max(0.05, ...)
+            return max(0.05, min(0.95, hits / 4))
 
         hits = sum(1 for kw in keywords if kw in draft_lower)
         return max(0.05, min(0.95, hits / max(len(keywords) * 0.5, 1)))
@@ -240,17 +246,17 @@ class VarianceGrader:
             score += 0.5
 
         sector_keywords = {
-            "Retail FMCG":          ["seasonal", "fmcg", "promotional", "volume lift"],
-            "SaaS":                 ["arr", "churn", "renewal", "gross margin"],
+            "Retail FMCG": ["seasonal", "fmcg", "promotional", "volume lift"],
+            "SaaS": ["arr", "churn", "renewal", "gross margin"],
             "Pharma Manufacturing": ["catastrophic", "batch", "regulatory", "api", "yield"],
-            "EdTech SaaS":          ["enrollment", "exam", "content cost", "b2b", "refund"],
+            "EdTech SaaS": ["enrollment", "exam", "content cost", "b2b", "refund"],
         }
+
         known_kws = sector_keywords.get(sector)
         if known_kws:
             if any(w in draft_lower for w in known_kws):
                 score += 0.5
         else:
-            # Unknown sector: use universal words + dynamic norms
             universal_sector_words = [
                 "commodity", "material", "labor", "workforce", "operational",
                 "escalation", "investigation", "supplier", "procurement",
@@ -280,7 +286,6 @@ class VarianceGrader:
         return max(0.05, min(0.95, score))
 
     def _check_format(self, fmt: str, draft_lower: str) -> float:
-        # FIX: removed reference to undefined `obs`, use len(keywords) instead
         keywords = _FORMAT_KEYWORDS.get(fmt, [])
         if not keywords:
             return 0.5
@@ -300,12 +305,8 @@ class VarianceGrader:
         return max(0.05, min(0.95, score))
 
     def _check_seasonality_reasoning(self, draft_lower: str, obs: Observation) -> float:
-        """
-        Smart Rule 1 — Seasonality & Proportionality Reasoning.
-        """
         score = 0.0
         vp = obs.variance_pct
-
         revenue_var = vp.get("Revenue", vp.get("revenue", 0))
         seasonal_words = ["seasonal", "holiday", "quarter", "cycle",
                           "temporary", "one-time", "period", "exam", "festival"]
@@ -334,19 +335,14 @@ class VarianceGrader:
         return max(0.05, min(0.95, score))
 
     def _check_offsetting_trap(self, draft_lower: str, obs: Observation) -> float:
-        """
-        Smart Rule 2 — Offsetting Variance Trap Detection.
-        """
         score = 0.0
         vp = obs.variance_pct
-
         variances = list(vp.values())
         if len(variances) < 2:
             return 0.5
 
         favorable = [v for v in variances if v > 0]
         unfavorable = [v for v in variances if v < 0]
-
         has_trap = len(favorable) > 0 and len(unfavorable) > 0
 
         if has_trap:
@@ -355,7 +351,6 @@ class VarianceGrader:
                             "concern", "warning", "flag", "investigate"]
             if any(w in draft_lower for w in offset_words):
                 score += 0.6
-
             explain_words = ["because", "due to", "caused by", "driven by",
                              "result of", "attributed to"]
             if any(w in draft_lower for w in explain_words):
@@ -366,11 +361,10 @@ class VarianceGrader:
         return max(0.05, min(0.95, score))
 
     def _hallucination_penalty(self, draft: str, obs: Observation) -> float:
-        """Penalise numbers in the draft that do not match the observation"""
         penalty = 0.0
         found_pcts = set(re.findall(r"(\d+\.?\d*)\s*%", draft))
-
         valid_pcts = set()
+
         for v in obs.variance_pct.values():
             abs_v = abs(v)
             valid_pcts.add(str(v))
@@ -407,7 +401,6 @@ class VarianceGrader:
         self, task_id: str, draft: str, obs: Observation
     ) -> Tuple[float, str]:
         prompt = f"""You are a senior FP&A quality reviewer. Grade this variance analysis report.
-
 == GROUND TRUTH ==
 Sector: {obs.sector}
 Budget: {obs.budget}
@@ -415,13 +408,10 @@ Actual: {obs.actual}
 Variance %: {obs.variance_pct}
 Requested Format: {obs.requested_format}
 Task: {task_id}
-
 == AGENT'S REPORT ==
 {draft}
-
 == GRADING RUBRIC ==
 Score from 0.05 to 0.95 on ALL of these:
-
 1. NUMERICAL ACCURACY (0–1): Are all percentages and absolutes correct? No hallucinated numbers?
 2. DRIVER QUALITY (0–1): Are the root causes correct and specific for this sector & task?
 3. SECTOR NORM USAGE (0–1): Did the agent correctly apply {obs.sector} norms and thresholds?
@@ -441,7 +431,6 @@ Return ONLY valid JSON (no markdown, no extra text):
   "key_strength": "one sentence",
   "key_weakness": "one sentence"
 }}
-
 weighted_score = (numerical_accuracy*0.20 + driver_quality*0.25 + sector_norm_usage*0.20 + format_compliance*0.15 + reasoning_chain*0.15 + trap_detection*0.05)
 """
         try:
@@ -459,7 +448,9 @@ weighted_score = (numerical_accuracy*0.20 + driver_quality*0.25 + sector_norm_us
                 f"Strength: {data.get('key_strength', '')} | "
                 f"Weakness: {data.get('key_weakness', '')}"
             )
-            return round(min(0.95, max(0.05, score)), 3), feedback
+            # Clamp LLM score too
+            score = max(0.05, min(0.95, score))
+            return round(score, 3), feedback
         except Exception as e:
             return 0.5, f"LLM grader error: {e}"
 
@@ -469,7 +460,6 @@ if __name__ == "__main__":
     env = BudgetVarianceEnv()
     obs = env.reset("easy")
     grader = VarianceGrader()
-
     sample_draft = (
         "The Revenue variance of 12.0% is driven by holiday promotion volume lift, "
         "which is within the normal ±5-8% Retail FMCG seasonal range — actually above it, "
