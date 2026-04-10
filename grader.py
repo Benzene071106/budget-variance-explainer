@@ -81,7 +81,17 @@ class VarianceGrader:
             final = rule_score
 
         # Clamp to strictly (0, 1) — validator requires not 0.0 and not 1.0
-        final = max(0.01, min(0.99, final))
+        # Also guard against NaN, Inf, and any float edge case
+        try:
+            final = float(final)
+        except Exception:
+            final = 0.5
+        if final != final:   # NaN check
+            final = 0.5
+        if final <= 0.0:
+            final = 0.01
+        if final >= 1.0:
+            final = 0.99
 
         detail = {
             "final_score": final,
@@ -94,7 +104,14 @@ class VarianceGrader:
 
         if return_detail:
             return detail
-        return round(final, 3)
+        rounded = round(final, 3)
+        # round() is safe here since final is already in [0.01, 0.99]
+        # but enforce once more to be absolutely certain
+        if rounded <= 0.0:
+            rounded = 0.01
+        if rounded >= 1.0:
+            rounded = 0.99
+        return rounded
 
     def _flatten_draft(self, draft: str) -> str:
         """Convert structured JSON output to flat text for keyword matching"""
