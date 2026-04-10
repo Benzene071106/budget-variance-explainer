@@ -350,7 +350,7 @@ def run_inference(task_ids: list = None) -> Dict:
             grade_detail = {"final_score": 0.5, "grader_source": f"fallback_error: {e}"}
 
         # Clamp strictly between 0 and 1 — validator rejects 0.0 and 1.0
-        final_score = max(0.01, min(0.99, float(raw_score)))
+        final_score = max(0.05, min(0.95, float(raw_score)))
 
         results[task_id] = {
             "score": final_score,
@@ -368,9 +368,9 @@ def run_inference(task_ids: list = None) -> Dict:
         except Exception:
             s = 0.5
         if s <= 0.0 or s != s:   # catches 0.0 and NaN
-            s = 0.01
+            s = 0.05
         if s >= 1.0:
-            s = 0.99
+            s = 0.95
         summary[tid] = s
     return summary
 
