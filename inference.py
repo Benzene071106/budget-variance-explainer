@@ -359,7 +359,19 @@ def run_inference(task_ids: list = None) -> Dict:
             "grader_detail": grade_detail
         }
 
-    summary = {tid: r["score"] for tid, r in results.items()}
+    # Final clamp on every score before returning — belt AND suspenders
+    summary = {}
+    for tid, r in results.items():
+        s = r["score"]
+        try:
+            s = float(s)
+        except Exception:
+            s = 0.5
+        if s <= 0.0 or s != s:   # catches 0.0 and NaN
+            s = 0.01
+        if s >= 1.0:
+            s = 0.99
+        summary[tid] = s
     return summary
 
 
