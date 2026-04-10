@@ -89,9 +89,9 @@ class VarianceGrader:
         if final != final:   # NaN check
             final = 0.5
         if final <= 0.0:
-            final = 0.01
+            final = 0.05
         if final >= 1.0:
-            final = 0.99
+            final = 0.95
 
         detail = {
             "final_score": final,
@@ -105,12 +105,12 @@ class VarianceGrader:
         if return_detail:
             return detail
         rounded = round(final, 3)
-        # round() is safe here since final is already in [0.01, 0.99]
+        # round() is safe here since final is already in [0.05, 0.95]
         # but enforce once more to be absolutely certain
         if rounded <= 0.0:
-            rounded = 0.01
+            rounded = 0.05
         if rounded >= 1.0:
-            rounded = 0.99
+            rounded = 0.95
         return rounded
 
     def _flatten_draft(self, draft: str) -> str:
@@ -173,7 +173,7 @@ class VarianceGrader:
             score += 0.05 * trap_score
             detail["trap_detection"] = round(0.05 * trap_score, 3)
 
-            final = round(max(0.01, min(0.99, score)), 3)
+            final = round(max(0.05, min(0.95, score)), 3)
             detail["rule_total"] = final
             return final, detail
 
@@ -195,7 +195,7 @@ class VarianceGrader:
                     pass
             if any(v in draft for v in variants):
                 hits += 1
-        return max(0.01, min(0.99, hits / max(len(obs.variance_pct), 1)))
+        return max(0.05, min(0.95, hits / max(len(obs.variance_pct), 1)))
 
     def _check_drivers(self, task_id: str, draft_lower: str, obs=None) -> float:
         keywords = _EXPECTED_DRIVERS.get(task_id, [])
@@ -216,10 +216,10 @@ class VarianceGrader:
         if not keywords or task_id.startswith("custom_"):
             all_keywords = universal
             hits = sum(1 for kw in all_keywords if kw in draft_lower)
-            return max(0.01, min(0.99, hits / 4))  # FIX: added max(0.01, ...)
+            return max(0.05, min(0.95, hits / 4))  # FIX: added max(0.05, ...)
 
         hits = sum(1 for kw in keywords if kw in draft_lower)
-        return max(0.01, min(0.99, hits / max(len(keywords) * 0.5, 1)))
+        return max(0.05, min(0.95, hits / max(len(keywords) * 0.5, 1)))
 
     def _check_sector_norm(self, sector: str, draft: str, obs=None) -> float:
         thresh = _SECTOR_THRESHOLDS.get(sector, {})
@@ -269,15 +269,15 @@ class VarianceGrader:
                 drivers = norms.get("common_drivers", [])
                 driver_words = [d.split()[0].lower() for d in drivers]
                 if any(w in draft_lower for w in driver_words):
-                    score = min(0.99, score + 0.25)
+                    score = min(0.95, score + 0.25)
                 red_flags = norms.get("red_flags", [])
                 flag_words = [f.split()[0].lower() for f in red_flags]
                 if any(w in draft_lower for w in flag_words):
-                    score = min(0.99, score + 0.25)
+                    score = min(0.95, score + 0.25)
             except Exception:
                 pass
 
-        return max(0.01, min(0.99, score))
+        return max(0.05, min(0.95, score))
 
     def _check_format(self, fmt: str, draft_lower: str) -> float:
         # FIX: removed reference to undefined `obs`, use len(keywords) instead
@@ -285,7 +285,7 @@ class VarianceGrader:
         if not keywords:
             return 0.5
         hits = sum(1 for kw in keywords if kw in draft_lower)
-        return max(0.01, min(0.99, hits / max(len(keywords), 1)))
+        return max(0.05, min(0.95, hits / max(len(keywords), 1)))
 
     def _check_evidence(self, draft_lower: str) -> float:
         causal_words = ["because", "due to", "caused by", "result of", "driven by", "attributed to"]
@@ -297,7 +297,7 @@ class VarianceGrader:
             score += 0.2
         if re.search(r"\d+\.?\d*\s*%", draft_lower):
             score += 0.2
-        return max(0.01, min(0.99, score))
+        return max(0.05, min(0.95, score))
 
     def _check_seasonality_reasoning(self, draft_lower: str, obs: Observation) -> float:
         """
@@ -331,7 +331,7 @@ class VarianceGrader:
         if any(w in draft_lower for w in structural_words):
             score += 0.2
 
-        return max(0.01, min(0.99, score))
+        return max(0.05, min(0.95, score))
 
     def _check_offsetting_trap(self, draft_lower: str, obs: Observation) -> float:
         """
@@ -361,9 +361,9 @@ class VarianceGrader:
             if any(w in draft_lower for w in explain_words):
                 score += 0.4
         else:
-            score = 0.99
+            score = 0.95
 
-        return max(0.01, min(0.99, score))
+        return max(0.05, min(0.95, score))
 
     def _hallucination_penalty(self, draft: str, obs: Observation) -> float:
         """Penalise numbers in the draft that do not match the observation"""
@@ -420,7 +420,7 @@ Task: {task_id}
 {draft}
 
 == GRADING RUBRIC ==
-Score from 0.0 to 0.99 on ALL of these:
+Score from 0.05 to 0.95 on ALL of these:
 
 1. NUMERICAL ACCURACY (0–1): Are all percentages and absolutes correct? No hallucinated numbers?
 2. DRIVER QUALITY (0–1): Are the root causes correct and specific for this sector & task?
@@ -459,7 +459,7 @@ weighted_score = (numerical_accuracy*0.20 + driver_quality*0.25 + sector_norm_us
                 f"Strength: {data.get('key_strength', '')} | "
                 f"Weakness: {data.get('key_weakness', '')}"
             )
-            return round(min(0.99, max(0.01, score)), 3), feedback
+            return round(min(0.95, max(0.05, score)), 3), feedback
         except Exception as e:
             return 0.5, f"LLM grader error: {e}"
 
