@@ -1,6 +1,6 @@
 from typing import Tuple, Dict, Any, List
 import uuid
-from models import Observation, Action, Reward
+from models import Observation, Action, Reward, clamp_openenv_score
 
 
 SECTOR_NORMS: Dict[str, Dict] = {
@@ -295,18 +295,8 @@ TASK_LIBRARY: Dict[str, Dict] = {
 
 
 def _clamp_reward(value: float) -> float:
-    """Clamp reward strictly between 0 and 1"""
-    try:
-        value = float(value)
-    except Exception:
-        return 0.5
-    if value != value:  # NaN
-        return 0.5
-    if value <= 0.0:
-        return 0.05
-    if value >= 1.0:
-        return 0.95
-    return value
+    """Same rules as task scores: never exactly 0.0 or 1.0 after rounding."""
+    return clamp_openenv_score(value)
 
 
 class BudgetVarianceEnv:
