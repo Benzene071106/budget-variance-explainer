@@ -1,10 +1,3 @@
-"""
-dynamic_env.py — Dynamic Budget Variance Environment
-
-Koi bhi industry, koi bhi metrics, koi bhi numbers.
-User apna data deta hai → AI automatically norms generate karta hai → analysis karta hai.
-"""
-
 from typing import Tuple, Dict, Any, List, Optional
 import uuid
 import os
@@ -89,12 +82,22 @@ FORMAT_TEMPLATES: Dict[str, Dict] = {
 }
 
 
+def _clamp_reward(value: float) -> float:
+    """Clamp reward strictly between 0 and 1"""
+    try:
+        value = float(value)
+    except Exception:
+        return 0.5
+    if value != value:  # NaN
+        return 0.5
+    if value <= 0.0:
+        return 0.05
+    if value >= 1.0:
+        return 0.95
+    return value
+
 
 def _generate_norms_via_llm(sector: str, metrics: List[str]) -> Dict:
-    """
-    Agar sector unknown hai → LLM se norms generate karo.
-    Groq / OpenAI dono kaam karte hain.
-    """
     try:
         from openai import OpenAI
         client = OpenAI(
@@ -136,7 +139,6 @@ Use realistic industry benchmarks. Be specific to {sector}."""
         return norms
 
     except Exception as e:
-      
         return {
             "revenue_tolerance_pct": (-10, 10),
             "cogs_tolerance_pct": (-8, 8),
@@ -144,7 +146,7 @@ Use realistic industry benchmarks. Be specific to {sector}."""
             "red_flag_threshold_pct": 15.0,
             "common_drivers": ["volume_change", "price_change", "cost_inflation", "mix_shift"],
             "red_flags": [f"Any metric variance > 15% needs investigation in {sector}"],
-            "context": f"Generic norms applied for {sector}. Recommend manual review with industry expert.",
+            "context": f"Generic norms applied for {sector}.",
             "source": "Generic fallback",
             "auto_generated": True,
             "error": str(e)
@@ -152,26 +154,15 @@ Use realistic industry benchmarks. Be specific to {sector}."""
 
 
 def get_or_generate_norms(sector: str, metrics: List[str] = None) -> Dict:
-    """Get norms from cache or generate via LLM if unknown sector"""
     if sector in _NORMS_CACHE:
         return _NORMS_CACHE[sector]
-
     print(f"  Unknown sector '{sector}' — generating norms via LLM...")
     norms = _generate_norms_via_llm(sector, metrics or [])
-    _NORMS_CACHE[sector] = norms   # cache kar lo future use ke liye
+    _NORMS_CACHE[sector] = norms
     return norms
 
 
-
 class DynamicBudgetVarianceEnv:
-    """
-    Fully dynamic environment — koi bhi sector, koi bhi metrics.
-
-    Two ways to use:
-    1. reset(task_id="easy")          — predefined tasks
-    2. reset_custom(sector, budget, actual, format)  — user ka apna data
-    """
-
     def __init__(self):
         self.episode_id: str = ""
         self.current_task: str = ""
@@ -188,12 +179,10 @@ class DynamicBudgetVarianceEnv:
         self._hallucination_count: int = 0
         self._is_custom: bool = False
 
-    # ── Predefined task reset ──────────────────
     def reset(self, task_id: str = "easy") -> Observation:
         from env import TASK_LIBRARY
         if task_id not in TASK_LIBRARY:
             raise ValueError(f"Unknown task '{task_id}'. Use reset_custom() for custom data.")
-
         cfg = TASK_LIBRARY[task_id]
         return self._setup_episode(
             task_id=task_id,
@@ -205,7 +194,6 @@ class DynamicBudgetVarianceEnv:
             task_config=cfg
         )
 
-    # ── Custom data reset — MAIN NEW FEATURE ──
     def reset_custom(
         self,
         sector: str,
@@ -216,23 +204,8 @@ class DynamicBudgetVarianceEnv:
         period: str = "",
         additional_context: str = ""
     ) -> Observation:
-        """
-        Koi bhi company, koi bhi sector, koi bhi metrics.
-
-        Example:
-            env.reset_custom(
-                sector="Automobile Manufacturing",
-                budget={"Revenue": 5000000, "Raw_Material": 2000000, "Labor": 800000},
-                actual={"Revenue": 4600000, "Raw_Material": 2300000, "Labor": 850000},
-                requested_format="exception-report",
-                company_name="Tata Motors Division",
-                period="Q3 FY2025"
-            )
-        """
         self._is_custom = True
         metrics = list(budget.keys())
-
-      
         norms = get_or_generate_norms(sector, metrics)
 
         hint_parts = [f"Custom task: {sector} analysis."]
@@ -300,11 +273,7 @@ class DynamicBudgetVarianceEnv:
             hint=hint
         )
 
-    
     def step(self, action: Action) -> Tuple[Observation, Reward, bool, Dict[str, Any]]:
-        from env import BudgetVarianceEnv
-        # Reuse existing step logic by delegating
-        # (avoids code duplication)
         self.step_count += 1
         reward_value = 0.0
         breakdown: Dict[str, float] = {}
@@ -321,10 +290,7 @@ class DynamicBudgetVarianceEnv:
                         self.actual.get(c.metric, 0) - self.budget.get(c.metric, 0), 2
                     )) < 0.05
                 )
-                wrong = len(action.calculations) - correct
-                self._hallucination_count += wrong
-                reward_value = round(0.20 * correct / max(len(action.calculations), 1), 3)
-                reward_value -= wrong * 0.15
+                reward_value = max(0.05, round(0.20 * correct / max(len(action.calculations), 1), 3))
                 breakdown["calc_score"] = reward_value
             else:
                 reward_value = 0.05
@@ -346,7 +312,7 @@ class DynamicBudgetVarianceEnv:
                 self.previous_drafts.append(action.explanation_text)
 
         elif action.action_type == "revise":
-            reward_value = 0.10 if self.previous_drafts else -0.05
+            reward_value = 0.10 if self.previous_drafts else 0.05
             if action.explanation_text:
                 self.previous_drafts.append(action.explanation_text)
 
@@ -364,7 +330,6 @@ class DynamicBudgetVarianceEnv:
                 reward_value += 0.15
                 breakdown["format_compliance"] = 0.15
 
-            
             _, variance_pct = self._calc_variances()
             threshold = self.sector_norms.get("red_flag_threshold_pct", 10.0)
             any_breach = any(abs(v) > threshold for v in variance_pct.values())
@@ -373,10 +338,14 @@ class DynamicBudgetVarianceEnv:
                     reward_value += 0.10
                     breakdown["risk_flag_correct"] = 0.10
                 elif any_breach and not action.structured_output.risk_flag:
-                    reward_value -= 0.10
-                    breakdown["missed_risk_flag"] = -0.10
+                    breakdown["missed_risk_flag"] = 0.05
 
-        reward_value = round(max(-1.0, min(1.0, reward_value)), 3)
+        # CLAMP reward strictly between 0.05 and 0.95
+        reward_value = _clamp_reward(reward_value)
+
+        # Clamp breakdown values too
+        safe_breakdown = {k: _clamp_reward(v) for k, v in breakdown.items()}
+
         variances, variance_pct = self._calc_variances()
 
         obs = Observation(
@@ -397,7 +366,7 @@ class DynamicBudgetVarianceEnv:
             )
         )
 
-        reward = Reward(value=reward_value, reason=f"{action.action_type} executed", breakdown=breakdown)
+        reward = Reward(value=reward_value, reason=f"{action.action_type} executed", breakdown=safe_breakdown)
         return obs, reward, self.done, {
             "episode_id": self.episode_id,
             "step": self.step_count,
