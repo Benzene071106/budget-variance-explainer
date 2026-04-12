@@ -84,7 +84,10 @@ def reset(task_id: str = "easy"):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     current_observation = obs
-    return obs.model_dump()
+    obs_dict = obs.model_dump()
+    # Ensure step_count is never 0 in response
+    obs_dict["step_count"] = max(1, obs_dict.get("step_count", 1))
+    return obs_dict
 
 @app.post("/reset/custom")
 def reset_custom(request: CustomResetRequest):
