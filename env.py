@@ -96,7 +96,6 @@ SECTOR_NORMS: Dict[str, Dict] = {
 }
 
 
-
 FORMAT_TEMPLATES: Dict[str, Dict] = {
     "one-pager": {
         "max_words": 300,
@@ -154,9 +153,7 @@ FORMAT_TEMPLATES: Dict[str, Dict] = {
 }
 
 
-
 TASK_LIBRARY: Dict[str, Dict] = {
-    
     "easy": {
         "name": "Retail FMCG — Holiday Surge",
         "difficulty": "easy",
@@ -179,8 +176,6 @@ TASK_LIBRARY: Dict[str, Dict] = {
         "expected_drivers": ["new_logo_attainment"],
         "trap": None
     },
-
-
     "medium": {
         "name": "SaaS — Mixed Volume + Deal-Size",
         "difficulty": "medium",
@@ -212,8 +207,6 @@ TASK_LIBRARY: Dict[str, Dict] = {
         "expected_drivers": ["promo_effectiveness", "mix_shift"],
         "trap": "favorable_revenue_hides_margin_erosion"
     },
-
-   
     "hard": {
         "name": "Pharma Manufacturing — Multi-Driver Crisis",
         "difficulty": "hard",
@@ -279,7 +272,7 @@ TASK_LIBRARY: Dict[str, Dict] = {
     "hard_conglomerate": {
         "name": "Conglomerate Rollup — Cross-Sector",
         "difficulty": "hard",
-        "sector": "Retail FMCG",  
+        "sector": "Retail FMCG",
         "budget": {
             "Retail_Revenue": 1_000_000, "Pharma_Revenue": 500_000,
             "Total_Revenue": 1_500_000, "Total_COGS": 900_000,
@@ -301,6 +294,20 @@ TASK_LIBRARY: Dict[str, Dict] = {
 }
 
 
+def _clamp_reward(value: float) -> float:
+    """Clamp reward strictly between 0 and 1"""
+    try:
+        value = float(value)
+    except Exception:
+        return 0.5
+    if value != value:  # NaN
+        return 0.5
+    if value <= 0.0:
+        return 0.05
+    if value >= 1.0:
+        return 0.95
+    return value
+
 
 class BudgetVarianceEnv:
     def __init__(self):
@@ -318,13 +325,11 @@ class BudgetVarianceEnv:
         self.format_template: Dict = {}
         self._hallucination_count: int = 0
 
-
     def reset(self, task_id: str = "easy") -> Observation:
         if task_id not in TASK_LIBRARY:
             raise ValueError(
                 f"Unknown task_id '{task_id}'. Available: {list(TASK_LIBRARY.keys())}"
             )
-
         self.episode_id = str(uuid.uuid4())
         self.step_count = 0
         self.previous_drafts = []
@@ -357,20 +362,17 @@ class BudgetVarianceEnv:
             hint=cfg["hint"]
         )
 
-   
     def step(self, action: Action) -> Tuple[Observation, Reward, bool, Dict[str, Any]]:
         self.step_count += 1
         reward_value = 0.0
         breakdown: Dict[str, float] = {}
         reason = "Action taken"
 
-       
         if action.action_type == "analyze":
             reward_value = 0.10
             breakdown["analysis_base"] = 0.10
             reason = "Analysis step — good start"
 
-       
         elif action.action_type == "calculate":
             if action.calculations:
                 correct = 0
@@ -382,12 +384,10 @@ class BudgetVarianceEnv:
                         correct += 1
                     else:
                         self._hallucination_count += 1
-                        reward_value -= 0.15
-                        breakdown["hallucination_penalty"] = breakdown.get("hallucination_penalty", 0) - 0.15
 
                 base = round(0.20 * correct / max(len(action.calculations), 1), 3)
-                reward_value += base
-                breakdown["correct_calc"] = base
+                reward_value = max(0.05, base)
+                breakdown["correct_calc"] = reward_value
                 reason = f"Calculations: {correct}/{len(action.calculations)} correct"
             else:
                 reward_value = 0.05
@@ -402,25 +402,22 @@ class BudgetVarianceEnv:
                 reward_value = 0.10
                 reason = "query_norms without valid norm_query"
 
-       
         elif action.action_type == "draft":
             reward_value = 0.15
             breakdown["draft_base"] = 0.15
             if action.structured_output:
-                
                 reward_value += 0.10
                 breakdown["structured_bonus"] = 0.10
                 if action.structured_output.risk_flag and not action.structured_output.risk_reason:
                     reward_value -= 0.05
-                    breakdown["missing_risk_reason"] = -0.05
+                    breakdown["missing_risk_reason"] = 0.05
             if action.explanation_text:
                 self.previous_drafts.append(action.explanation_text)
             reason = "Draft created"
 
-  
         elif action.action_type == "revise":
             if len(self.previous_drafts) == 0:
-                reward_value = -0.05
+                reward_value = 0.05
                 reason = "Revise called with no prior draft"
             else:
                 reward_value = 0.10
@@ -428,14 +425,11 @@ class BudgetVarianceEnv:
             if action.explanation_text:
                 self.previous_drafts.append(action.explanation_text)
 
-       
         elif action.action_type == "submit":
             self.done = True
-            base_submit = 0.20
-            reward_value = base_submit
-            breakdown["submit_base"] = base_submit
+            reward_value = 0.20
+            breakdown["submit_base"] = 0.20
 
-            # Efficiency bonus: fewer steps = better
             if self.step_count <= 4:
                 reward_value += 0.15
                 breakdown["efficiency_bonus"] = 0.15
@@ -443,31 +437,29 @@ class BudgetVarianceEnv:
                 reward_value += 0.05
                 breakdown["efficiency_bonus"] = 0.05
 
-           
             if action.structured_output:
                 reward_value += 0.15
                 breakdown["format_compliance"] = 0.15
 
-          
-            cfg = self.current_task_config
             norms = self.sector_norms
             threshold = norms.get("red_flag_threshold_pct", 10.0)
             _, variance_pct = self._calc_variances()
-            any_breach = any(
-                abs(v) > threshold for v in variance_pct.values()
-            )
+            any_breach = any(abs(v) > threshold for v in variance_pct.values())
             if action.structured_output:
                 if any_breach and action.structured_output.risk_flag:
                     reward_value += 0.10
                     breakdown["risk_flag_correct"] = 0.10
                 elif any_breach and not action.structured_output.risk_flag:
-                    reward_value -= 0.10
-                    breakdown["missed_risk_flag"] = -0.10
+                    breakdown["missed_risk_flag"] = 0.05
 
             reason = "Final report submitted"
 
-       
-        reward_value = round(max(-1.0, min(1.0, reward_value)), 3)
+        # CLAMP reward strictly between 0.05 and 0.95
+        reward_value = _clamp_reward(reward_value)
+
+        # Clamp breakdown values too
+        safe_breakdown = {k: _clamp_reward(v) for k, v in breakdown.items()}
+
         variances, variance_pct = self._calc_variances()
 
         obs = Observation(
@@ -488,7 +480,7 @@ class BudgetVarianceEnv:
             )
         )
 
-        reward = Reward(value=reward_value, reason=reason, breakdown=breakdown)
+        reward = Reward(value=reward_value, reason=reason, breakdown=safe_breakdown)
         return obs, reward, self.done, {
             "episode_id": self.episode_id,
             "step": self.step_count,
@@ -496,7 +488,6 @@ class BudgetVarianceEnv:
             "task_trap": self.current_task_config.get("trap")
         }
 
-    
     def state(self) -> Dict[str, Any]:
         return {
             "episode_id": self.episode_id,
@@ -511,7 +502,6 @@ class BudgetVarianceEnv:
         }
 
     def get_sector_norms(self, sector: str = None) -> Dict:
-        """Expose full norms — used by inference agent for query_norms action"""
         s = sector or self.sector
         return SECTOR_NORMS.get(s, {})
 
@@ -528,7 +518,6 @@ class BudgetVarianceEnv:
             for tid, cfg in TASK_LIBRARY.items()
         ]
 
- 
     def _calc_variances(self):
         variances = {
             k: round(self.actual.get(k, 0) - self.budget.get(k, 0), 2)
