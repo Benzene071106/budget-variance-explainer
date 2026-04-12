@@ -27,6 +27,21 @@ current_observation = None
 current_final_draft = None
 
 
+def _clamp_score(s):
+    """Clamp any score strictly between 0 and 1"""
+    try:
+        s = float(s)
+    except Exception:
+        return 0.5
+    if s != s:  # NaN
+        return 0.5
+    if s <= 0.0:
+        return 0.05
+    if s >= 1.0:
+        return 0.95
+    return s
+
+
 class StepRequest(BaseModel):
     action: Action
 
@@ -109,6 +124,14 @@ def step(request: StepRequest):
                 current_final_draft = request.action.explanation_text or ""
         else:
             current_final_draft = request.action.explanation_text or ""
+
+    # Clamp reward.value strictly between 0 and 1
+    reward.value = _clamp_score(reward.value)
+
+    # Clamp breakdown values
+    if reward.breakdown:
+        reward.breakdown = {k: _clamp_score(v) for k, v in reward.breakdown.items()}
+
     return {"observation": obs.model_dump(), "reward": reward.model_dump(), "done": done, "info": info}
 
 @app.get("/state")
@@ -140,6 +163,10 @@ def get_grader_score(task_id: str = None, detail: bool = False):
         return {"error": "No completed episode. Submit a final draft first."}
     tid = task_id or getattr(_active_env, "current_task", "easy")
     result = grader.grade(tid, current_final_draft, current_observation, return_detail=True)
+
+    # Clamp final_score
+    result["final_score"] = _clamp_score(result.get("final_score", 0.5))
+
     if detail:
         return result
     return {"task_id": tid, "score": result["final_score"], "feedback": result.get("llm_feedback")}
@@ -148,25 +175,18 @@ def get_grader_score(task_id: str = None, detail: bool = False):
 def run_baseline(tasks: str = "easy,easy_saas,medium,medium_retail_margin,hard,hard_saas_churn,hard_edtech_seasonal,hard_conglomerate"):
     task_list = [t.strip() for t in tasks.split(",") if t.strip()]
     invalid = [t for t in task_list if t not in TASK_LIBRARY]
-    
+
     if invalid:
         raise HTTPException(status_code=400, detail=f"Unknown task IDs: {invalid}")
-    
+
     try:
         from inference import run_inference
         scores = run_inference(task_ids=task_list)
 
-        # Clamp every score strictly between 0 and 1
+        # Ensure all tasks have valid clamped scores
         safe_scores = {}
         for tid in TASK_LIBRARY.keys():
-            s = scores.get(tid, 0.5)
-            try:
-                s = float(s)
-            except Exception:
-                s = 0.5
-            if s != s or s <= 0.0 or s >= 1.0:
-                s = 0.5
-            safe_scores[tid] = s
+            safe_scores[tid] = _clamp_score(scores.get(tid, 0.5))
 
         safe_scores = jsonable_encoder(safe_scores)
 
@@ -178,9 +198,9 @@ def run_baseline(tasks: str = "easy,easy_saas,medium,medium_retail_margin,hard,h
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Baseline error: {str(e)}")
+
 @app.get("/report")
 def report_viewer():
-    import os
     viewer_path = os.path.join(os.path.dirname(__file__), "report_viewer.html")
     return FileResponse(viewer_path)
 
