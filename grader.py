@@ -66,7 +66,7 @@ class VarianceGrader:
         llm_feedback = "LLM grader not available — rule-based only"
         source = "rule_based"
 
-        if _LLM_AVAILABLE and os.getenv("OPENAI_API_KEY"):
+        if _LLM_AVAILABLE and (os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN")):
             try:
                 llm_score, llm_feedback = self._llm_grade(task_id, final_draft, observation)
                 # Weighted blend: rule 40%, LLM 60%
