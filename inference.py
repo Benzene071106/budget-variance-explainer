@@ -306,8 +306,8 @@ def run_inference(task_ids: list = None) -> Dict:
 
         finally:
             print(
-                f"[END] success={str(success).lower()} steps={step} "
-                f"rewards={round(cumulative_reward, 2):.2f}",
+               f"[END] success={str(success).lower()} steps={step} "
+               f"rewards={max(0.05, min(0.95, cumulative_reward / max(step, 1))):.2f}",
                 flush=True
             )
 
