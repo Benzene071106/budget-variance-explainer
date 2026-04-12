@@ -1,5 +1,26 @@
+import math
+
 from pydantic import BaseModel, Field, field_validator
 from typing import Dict, List, Optional, Literal
+
+
+def clamp_openenv_score(value) -> float:
+    """
+    Task scores must lie strictly in (0, 1): never exactly 0.0 or 1.0.
+    Python's round(x, 3) can yield 0.0 or 1.0 for tiny/large values; fix that after rounding.
+    """
+    try:
+        s = float(value)
+    except (TypeError, ValueError):
+        return 0.5
+    if not math.isfinite(s):
+        return 0.5
+    s = round(s, 3)
+    if s <= 0.0:
+        return 0.051
+    if s >= 1.0:
+        return 0.949
+    return s
 
 
 
