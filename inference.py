@@ -283,7 +283,7 @@ def run_inference(task_ids: list = None) -> Dict:
 
                 print(
                     f"[STEP] step={step} action={action.action_type} "
-                    f"reward={reward.value:.2f} done={str(done).lower()} "
+                    f"reward={max(0.05, min(0.95, reward.value)):.2f} done={str(done).lower()} "
                     f"error={error_str}",
                     flush=True
                 )
