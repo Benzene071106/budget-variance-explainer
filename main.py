@@ -8,7 +8,7 @@ import uvicorn
 import os
 import json
 
-from models import Observation, Action, Reward
+from models import Observation, Action, Reward, clamp_openenv_score
 from env import BudgetVarianceEnv, SECTOR_NORMS, FORMAT_TEMPLATES, TASK_LIBRARY
 from dynamic_env import DynamicBudgetVarianceEnv, get_or_generate_norms
 from grader import VarianceGrader
@@ -28,18 +28,8 @@ current_final_draft = None
 
 
 def _clamp_score(s):
-    """Clamp any score strictly between 0 and 1"""
-    try:
-        s = float(s)
-    except Exception:
-        return 0.5
-    if s != s:  # NaN
-        return 0.5
-    if s <= 0.0:
-        return 0.05
-    if s >= 1.0:
-        return 0.95
-    return s
+    """Task / reward scores: strictly inside (0, 1), never 0.0 or 1.0 after rounding."""
+    return clamp_openenv_score(s)
 
 
 class StepRequest(BaseModel):
