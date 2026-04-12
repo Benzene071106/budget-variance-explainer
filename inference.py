@@ -1,6 +1,13 @@
 import os
 import json
-from models import Action, VarianceCalculation, NormQuery, StructuredReport, Driver
+from models import (
+    Action,
+    VarianceCalculation,
+    NormQuery,
+    StructuredReport,
+    Driver,
+    clamp_openenv_score,
+)
 from env import BudgetVarianceEnv, SECTOR_NORMS, FORMAT_TEMPLATES
 from grader import VarianceGrader
 from typing import Dict
@@ -283,7 +290,7 @@ def run_inference(task_ids: list = None) -> Dict:
 
                 print(
                     f"[STEP] step={step} action={action.action_type} "
-                    f"reward={max(0.05, min(0.95, reward.value)):.2f} done={str(done).lower()} "
+                    f"reward={clamp_openenv_score(reward.value):.2f} done={str(done).lower()} "
                     f"error={error_str}",
                     flush=True
                 )
@@ -298,7 +305,7 @@ def run_inference(task_ids: list = None) -> Dict:
         except Exception as e:
             error_str = str(e).replace("\n", " ")
             print(
-                f"[STEP] step={step + 1} action=error reward=0.00 "
+                f"[STEP] step={step + 1} action=error reward=0.05 "
                 f"done=false error={error_str}",
                 flush=True
             )
@@ -306,8 +313,8 @@ def run_inference(task_ids: list = None) -> Dict:
 
         finally:
             print(
-               f"[END] success={str(success).lower()} steps={step} "
-               f"rewards={max(0.05, min(0.95, cumulative_reward / max(step, 1))):.2f}",
+                f"[END] success={str(success).lower()} steps={step} "
+                f"rewards={clamp_openenv_score(cumulative_reward / max(step, 1)):.2f}",
                 flush=True
             )
 
@@ -349,8 +356,7 @@ def run_inference(task_ids: list = None) -> Dict:
             raw_score = 0.5
             grade_detail = {"final_score": 0.5, "grader_source": f"fallback_error: {e}"}
 
-        # Clamp strictly between 0 and 1 — validator rejects 0.0 and 1.0
-        final_score = max(0.05, min(0.95, float(raw_score)))
+        final_score = clamp_openenv_score(raw_score)
 
         results[task_id] = {
             "score": final_score,
@@ -360,7 +366,7 @@ def run_inference(task_ids: list = None) -> Dict:
         }
 
     # Final clamp on every score before returning — belt AND suspenders
-   all_possible_tasks = [
+    all_possible_tasks = [
         "easy", "easy_saas", "medium", "medium_retail_margin",
         "hard", "hard_saas_churn", "hard_edtech_seasonal", "hard_conglomerate"
     ]
@@ -376,14 +382,12 @@ def run_inference(task_ids: list = None) -> Dict:
             s = 0.5
         if s != s or s is None:
             s = 0.5
-        if s <= 0.0:
-            s = 0.5
-        if s >= 1.0:
-            s = 0.95
-        summary[tid] = s
+        summary[tid] = clamp_openenv_score(s)
 
     return summary
 
 
 if __name__ == "__main__":
-    run_inference()
+    import json
+
+    print(json.dumps(run_inference()), flush=True)
