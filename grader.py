@@ -2,7 +2,7 @@ import os
 import json
 import re
 from typing import Dict, Optional, Tuple
-from models import Observation
+from models import Observation, clamp_openenv_score
 
 try:
     from openai import OpenAI
@@ -78,28 +78,12 @@ class VarianceGrader:
         else:
             final = rule_score
 
-        # === STRICT CLAMPING TO (0.051, 0.949) ===
         try:
             final = float(final)
         except (ValueError, TypeError):
             final = 0.5
 
-        if final != final:  # NaN check
-            final = 0.5
-
-        # Force strictly inside (0, 1) — never allow 0.0 or 1.0
-        if final <= 0.0:
-            final = 0.051
-        elif final >= 1.0:
-            final = 0.949
-        else:
-            # Extra safety near boundaries
-            if final < 0.01:
-                final = 0.051
-            elif final > 0.99:
-                final = 0.949
-
-        final = round(final, 3)
+        final = clamp_openenv_score(final)
 
         detail = {
             "final_score": final,
@@ -113,8 +97,7 @@ class VarianceGrader:
         if return_detail:
             return detail
 
-        # Final return with strict range
-        return max(0.051, min(0.949, final))
+        return final
 
     def _flatten_draft(self, draft: str) -> str:
         """Convert structured JSON output to flat text for keyword matching"""
@@ -176,8 +159,7 @@ class VarianceGrader:
             score += 0.05 * trap_score
             detail["trap_detection"] = round(0.05 * trap_score, 3)
 
-            # STRICT CLAMPING HERE TOO
-            final = round(max(0.051, min(0.949, score)), 3)
+            final = clamp_openenv_score(score)
             detail["rule_total"] = final
             return final, detail
 
@@ -448,9 +430,8 @@ weighted_score = (numerical_accuracy*0.20 + driver_quality*0.25 + sector_norm_us
                 f"Strength: {data.get('key_strength', '')} | "
                 f"Weakness: {data.get('key_weakness', '')}"
             )
-            # Clamp LLM score too
             score = max(0.05, min(0.95, score))
-            return round(score, 3), feedback
+            return clamp_openenv_score(score), feedback
         except Exception as e:
             return 0.5, f"LLM grader error: {e}"
 
