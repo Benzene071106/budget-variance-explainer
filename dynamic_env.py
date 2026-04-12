@@ -4,7 +4,7 @@ import os
 import json
 import re
 
-from models import Observation, Action, Reward
+from models import Observation, Action, Reward, clamp_openenv_score
 
 
 _NORMS_CACHE: Dict[str, Dict] = {
@@ -83,18 +83,7 @@ FORMAT_TEMPLATES: Dict[str, Dict] = {
 
 
 def _clamp_reward(value: float) -> float:
-    """Clamp reward strictly between 0 and 1"""
-    try:
-        value = float(value)
-    except Exception:
-        return 0.5
-    if value != value:  # NaN
-        return 0.5
-    if value <= 0.0:
-        return 0.05
-    if value >= 1.0:
-        return 0.95
-    return value
+    return clamp_openenv_score(value)
 
 
 def _generate_norms_via_llm(sector: str, metrics: List[str]) -> Dict:
