@@ -166,7 +166,7 @@ class VarianceGrader:
 
             halluc_penalty = self._hallucination_penalty(draft, obs)
             score -= halluc_penalty
-            detail["hallucination_penalty"] = -round(hallucination_penalty, 3)
+            detail["hallucination_penalty"] = -round(halluc_penalty, 3)
 
             seasonality_score = self._check_seasonality_reasoning(draft_lower, obs)
             score += 0.05 * seasonality_score
