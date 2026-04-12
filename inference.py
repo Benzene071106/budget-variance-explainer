@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 from models import (
     Action,
@@ -8,7 +9,7 @@ from models import (
     Driver,
     clamp_openenv_score,
 )
-from env import BudgetVarianceEnv, SECTOR_NORMS, FORMAT_TEMPLATES
+from env import BudgetVarianceEnv, SECTOR_NORMS, FORMAT_TEMPLATES, TASK_LIBRARY
 from grader import VarianceGrader
 from typing import Dict
 
@@ -16,9 +17,17 @@ API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
+
+def _log(*args, **kwargs):
+    """OpenEnv score parsers read stdout; keep logs off stdout."""
+    kwargs.setdefault("file", sys.stderr)
+    kwargs.setdefault("flush", True)
+    print(*args, **kwargs)
+
+
 # FIX: removed hard raise — allow graceful degradation if token missing
 if HF_TOKEN is None:
-    print("WARNING: HF_TOKEN environment variable is not set. LLM calls will fail.", flush=True)
+    _log("WARNING: HF_TOKEN environment variable is not set. LLM calls will fail.")
 
 try:
     from openai import OpenAI
@@ -27,7 +36,7 @@ try:
         api_key=HF_TOKEN or "no-key"
     )
 except Exception as e:
-    print(f"WARNING: OpenAI client init failed: {e}", flush=True)
+    _log(f"WARNING: OpenAI client init failed: {e}")
     client = None
 
 
@@ -74,7 +83,7 @@ RULES:
 def _call_llm(messages: list, task_id: str) -> dict:
     """Call LLM and parse JSON action response"""
     if client is None:
-        print(f"  LLM client not available — using fallback", flush=True)
+        _log("  LLM client not available — using fallback")
         return None
     try:
         resp = client.chat.completions.create(
@@ -87,7 +96,7 @@ def _call_llm(messages: list, task_id: str) -> dict:
         raw = raw.replace("```json", "").replace("```", "").strip()
         return json.loads(raw)
     except Exception as e:
-        print(f"  LLM call failed: {e} — using fallback", flush=True)
+        _log(f"  LLM call failed: {e} — using fallback")
         return None
 
 
@@ -174,7 +183,7 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
                 so["risk_flag"] = False
             structured_output = so
         except Exception as e:
-            print(f"  structured_output parse error: {e}", flush=True)
+            _log(f"  structured_output parse error: {e}")
             if not raw.get("explanation_text") and raw.get("structured_output"):
                 so = raw["structured_output"]
                 summary = so.get("executive_summary", "")
@@ -193,7 +202,7 @@ def _build_action(raw: dict, obs_dict: dict, step: int) -> Action:
             revision_instructions=raw.get("revision_instructions")
         )
     except Exception as e:
-        print(f"  Action build error: {e}", flush=True)
+        _log(f"  Action build error: {e}")
         return Action(action_type="analyze", explanation_text="Fallback action.")
 
 
@@ -247,7 +256,7 @@ Return your next action as JSON.
 def run_inference(task_ids: list = None) -> Dict:
     """Main inference function — multi-step agentic loop with structured stdout logs"""
     if task_ids is None:
-        task_ids = ["easy", "medium", "hard"]
+        task_ids = list(TASK_LIBRARY.keys())
 
     results = {}
 
@@ -255,9 +264,8 @@ def run_inference(task_ids: list = None) -> Dict:
     try:
         env = BudgetVarianceEnv()
     except Exception as e:
-        print(f"[ERROR] Failed to initialise BudgetVarianceEnv: {e}", flush=True)
-        # Return safe fallback scores so validator doesn't get 0.0 or 1.0
-        return {tid: 0.5 for tid in task_ids}
+        _log(f"[ERROR] Failed to initialise BudgetVarianceEnv: {e}")
+        return {tid: clamp_openenv_score(0.5) for tid in TASK_LIBRARY}
 
     grader = VarianceGrader()
 
@@ -268,10 +276,7 @@ def run_inference(task_ids: list = None) -> Dict:
         cumulative_reward = 0.0
         success = False
 
-        print(
-            f"[START] task={task_id} env=BudgetVarianceEnv model={MODEL_NAME}",
-            flush=True
-        )
+        _log(f"[START] task={task_id} env=BudgetVarianceEnv model={MODEL_NAME}")
 
         try:
             obs = env.reset(task_id=task_id)
@@ -288,11 +293,10 @@ def run_inference(task_ids: list = None) -> Dict:
 
                 error_str = info.get("error", "null") or "null"
 
-                print(
+                _log(
                     f"[STEP] step={step} action={action.action_type} "
                     f"reward={clamp_openenv_score(reward.value):.2f} done={str(done).lower()} "
-                    f"error={error_str}",
-                    flush=True
+                    f"error={error_str}"
                 )
 
                 history.append({"role": "user", "content": user_msg})
@@ -304,18 +308,16 @@ def run_inference(task_ids: list = None) -> Dict:
 
         except Exception as e:
             error_str = str(e).replace("\n", " ")
-            print(
+            _log(
                 f"[STEP] step={step + 1} action=error reward=0.05 "
-                f"done=false error={error_str}",
-                flush=True
+                f"done=false error={error_str}"
             )
             success = False
 
         finally:
-            print(
+            _log(
                 f"[END] success={str(success).lower()} steps={step} "
-                f"rewards={clamp_openenv_score(cumulative_reward / max(step, 1)):.2f}",
-                flush=True
+                f"rewards={clamp_openenv_score(cumulative_reward / max(step, 1)):.2f}"
             )
 
         # Grading
@@ -366,13 +368,8 @@ def run_inference(task_ids: list = None) -> Dict:
         }
 
     # Final clamp on every score before returning — belt AND suspenders
-    all_possible_tasks = [
-        "easy", "easy_saas", "medium", "medium_retail_margin",
-        "hard", "hard_saas_churn", "hard_edtech_seasonal", "hard_conglomerate"
-    ]
-
     summary = {}
-    for tid in all_possible_tasks:
+    for tid in TASK_LIBRARY:
         if tid in results:
             try:
                 s = float(results[tid]["score"])
@@ -388,6 +385,6 @@ def run_inference(task_ids: list = None) -> Dict:
 
 
 if __name__ == "__main__":
-    import json
-
-    print(json.dumps(run_inference()), flush=True)
+    out = run_inference()
+    out = {k: clamp_openenv_score(v) for k, v in out.items()}
+    print(json.dumps(out, sort_keys=True, allow_nan=False), flush=True)
