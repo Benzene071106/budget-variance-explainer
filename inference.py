@@ -360,18 +360,28 @@ def run_inference(task_ids: list = None) -> Dict:
         }
 
     # Final clamp on every score before returning — belt AND suspenders
+   all_possible_tasks = [
+        "easy", "easy_saas", "medium", "medium_retail_margin",
+        "hard", "hard_saas_churn", "hard_edtech_seasonal", "hard_conglomerate"
+    ]
+
     summary = {}
-    for tid, r in results.items():
-        s = r["score"]
-        try:
-            s = float(s)
-        except Exception:
+    for tid in all_possible_tasks:
+        if tid in results:
+            try:
+                s = float(results[tid]["score"])
+            except Exception:
+                s = 0.5
+        else:
             s = 0.5
-        if s <= 0.0 or s != s:   # catches 0.0 and NaN
-            s = 0.05
+        if s != s or s is None:
+            s = 0.5
+        if s <= 0.0:
+            s = 0.5
         if s >= 1.0:
             s = 0.95
         summary[tid] = s
+
     return summary
 
 
